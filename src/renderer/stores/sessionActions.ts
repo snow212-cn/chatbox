@@ -13,7 +13,7 @@ export {
 // Re-export export operations from session/export.ts
 export { exportSessionChat } from './session/export'
 // Re-export fork operations from session/forks.ts
-export { createNewFork, deleteFork, expandFork, switchFork } from './session/forks'
+export { createEditedMessageFork, createNewFork, deleteFork, expandFork, switchFork } from './session/forks'
 // Re-export generation operations from session/generation.ts
 export {
   createLoadingPictures,

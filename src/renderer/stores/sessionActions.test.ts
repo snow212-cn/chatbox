@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { getMessageText } from '../../shared/utils/message'
 import type { Message, Session, SessionThread } from '../../shared/types'
 
 import * as sessionActions from './sessionActions'
@@ -451,5 +452,49 @@ describe('fork actions', () => {
     expect(fork!.lists).toHaveLength(2)
     expect(fork!.lists[0].messages).toEqual([target])
     expect(runGenerateMore).toHaveBeenCalledWith(session.id, pivot.id)
+  })
+  test('createEditedMessageFork preserves original branch message and inserts edited copy as a new branch root message', async () => {
+    uuidQueue.push('initial-fork-list', 'stored-fork-list', 'new-branch-list', 'edited-msg-id')
+    const pivot = makeMessage('pivot', 'user')
+    const original = makeMessage('original', 'assistant')
+    original.contentParts = [{ type: 'text', text: 'original answer' }]
+    original.timestamp = 100
+    const session: Session = {
+      id: 'session-9',
+      name: 'Test',
+      messages: [pivot, original],
+    }
+    const snapshot = cloneSession(session)
+    let updated: Session | undefined
+
+    updateSessionWithMessages.mockImplementation(async (_, updater) => {
+      const result = updater(session)
+      updated = result as Session
+      return result
+    })
+
+    const editedMessage: Message = {
+      ...original,
+      contentParts: [{ type: 'text', text: 'edited answer' }],
+    }
+
+    const forkedMessage = await sessionActions.createEditedMessageFork(session.id, editedMessage)
+
+    expect(session).toEqual(snapshot)
+    expect(updated).toBeDefined()
+    expect(forkedMessage).toBeDefined()
+    expect(forkedMessage?.id).toBe('edited-msg-id')
+    expect(getMessageText(forkedMessage!)).toBe('edited answer')
+    expect(updated!.messages).toHaveLength(2)
+    expect(updated!.messages[0]).toEqual(pivot)
+    expect(updated!.messages[1].id).toBe('edited-msg-id')
+    expect(getMessageText(updated!.messages[1])).toBe('edited answer')
+
+    const fork = updated!.messageForksHash?.[pivot.id]
+    expect(fork).toBeDefined()
+    expect(fork!.position).toBe(1)
+    expect(fork!.lists).toHaveLength(2)
+    expect(fork!.lists[0].messages).toEqual([original])
+    expect(fork!.lists[1].messages).toEqual([])
   })
 })

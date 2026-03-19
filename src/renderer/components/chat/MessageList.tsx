@@ -100,6 +100,35 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
     [currentSession]
   )
   const currentMessageList = useMemo(() => getAllMessageList(currentSession), [currentSession])
+  const currentForkDisplayHash = useMemo(() => {
+    const ret: Record<string, { forkMessageId: string; forks: NonNullable<Session['messageForksHash']>[string] }> = {}
+    const messageForksHash = currentSession.messageForksHash
+    if (!messageForksHash) {
+      return ret
+    }
+
+    const registerForks = (messages: Session['messages']) => {
+      for (const [forkMessageId, forks] of Object.entries(messageForksHash)) {
+        const forkIndex = messages.findIndex((m) => m.id === forkMessageId)
+        if (forkIndex < 0) {
+          continue
+        }
+        const displayMessage = messages[forkIndex + 1] ?? messages[forkIndex]
+        if (!displayMessage) {
+          continue
+        }
+        ret[displayMessage.id] = {
+          forkMessageId,
+          forks,
+        }
+      }
+    }
+
+    registerForks(currentSession.messages)
+    currentSession.threads?.forEach((thread) => registerForks(thread.messages))
+
+    return ret
+  }, [currentSession])
 
   const latestSummaryMessageId = useMemo(() => {
     for (let i = currentMessageList.length - 1; i >= 0; i--) {
@@ -285,6 +314,7 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
                 })}
             increaseViewportBy={{ top: 2000, bottom: 2000 }}
             itemContent={(index, msg) => {
+              const displayFork = currentForkDisplayHash[msg.id]
               return (
                 <Stack
                   key={msg.id}
@@ -320,16 +350,15 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
                       />
                     )}
                   </ErrorBoundary>
-                  {currentSession.messageForksHash?.[msg.id] &&
-                    currentSession.messageForksHash[msg.id].lists.length > 1 && (
-                      <Flex justify="flex-end" mt={-16} pr="md" mr="md" className="z-10 self-end">
-                        <ForkNav
-                          sessionId={currentSession.id}
-                          msgId={msg.id}
-                          forks={currentSession.messageForksHash[msg.id]}
-                        />
-                      </Flex>
-                    )}
+                  {displayFork && displayFork.forks.lists.length > 1 && (
+                    <Flex justify="flex-end" mt={-16} pr="md" mr="md" className="z-10 self-end">
+                      <ForkNav
+                        sessionId={currentSession.id}
+                        forkMessageId={displayFork.forkMessageId}
+                        forks={displayFork.forks}
+                      />
+                    </Flex>
+                  )}
                 </Stack>
               )
             }}
@@ -396,8 +425,12 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
 
 export default memo(MessageList)
 
-function ForkNav(props: { sessionId: string; msgId: string; forks: NonNullable<Session['messageForksHash']>[string] }) {
-  const { sessionId, msgId, forks } = props
+function ForkNav(props: {
+  sessionId: string
+  forkMessageId: string
+  forks: NonNullable<Session['messageForksHash']>[string]
+}) {
+  const { sessionId, forkMessageId, forks } = props
   const [flash, setFlash] = useState(false)
   const prevLength = useRef(forks.lists.length)
   const { t } = useTranslation()
@@ -418,7 +451,7 @@ function ForkNav(props: { sessionId: string; msgId: string; forks: NonNullable<S
         size={20}
         radius="xl"
         color={flash ? 'chatbox-secondary' : 'chatbox-tertiary'}
-        onClick={() => void switchFork(sessionId, msgId, 'prev')}
+        onClick={() => void switchFork(sessionId, forkMessageId, 'prev')}
       >
         <IconChevronLeft />
       </ActionIcon>
@@ -428,7 +461,7 @@ function ForkNav(props: { sessionId: string; msgId: string; forks: NonNullable<S
           {
             text: t('expand'),
             icon: IconAlignRight,
-            onClick: () => expandFork(sessionId, msgId),
+            onClick: () => expandFork(sessionId, forkMessageId),
           },
           {
             divider: true,
@@ -437,7 +470,7 @@ function ForkNav(props: { sessionId: string; msgId: string; forks: NonNullable<S
             doubleCheck: true,
             text: t('delete'),
             icon: IconTrash,
-            onClick: () => deleteFork(sessionId, msgId),
+            onClick: () => deleteFork(sessionId, forkMessageId),
           },
         ]}
       >
@@ -450,7 +483,7 @@ function ForkNav(props: { sessionId: string; msgId: string; forks: NonNullable<S
         size={20}
         radius="xl"
         color={flash ? 'chatbox-secondary' : 'chatbox-tertiary'}
-        onClick={() => switchFork(sessionId, msgId, 'next')}
+        onClick={() => switchFork(sessionId, forkMessageId, 'next')}
       >
         <IconChevronRight />
       </ActionIcon>

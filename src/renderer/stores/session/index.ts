@@ -28,7 +28,7 @@ export {
 // Export operations (1 function)
 export { exportSessionChat } from './export'
 // Fork operations (5 functions)
-export { createNewFork, deleteFork, expandFork, findMessageLocation, switchFork } from './forks'
+export { createEditedMessageFork, createNewFork, deleteFork, expandFork, findMessageLocation, switchFork } from './forks'
 // Generation operations (8 functions)
 export {
   createLoadingPictures,

@@ -1,5 +1,7 @@
-import type { Message, Session } from '@shared/types'
+import { copyMessage, type Message, type Session } from '@shared/types'
+import { countMessageWords } from '@shared/utils/message'
 import { v4 as uuidv4 } from 'uuid'
+import { estimateTokensFromMessages } from '@/packages/token'
 import * as chatStore from '../chatStore'
 import type { MessageForkEntry, MessageLocation } from './types'
 
@@ -100,7 +102,64 @@ export async function expandFork(sessionId: string, forkMessageId: string) {
   })
 }
 
+export async function createEditedMessageFork(sessionId: string, updatedMessage: Message): Promise<Message | null> {
+  let forkedMessage: Message | null = null
+
+  await chatStore.updateSessionWithMessages(sessionId, (session) => {
+    if (!session) {
+      throw new Error('Session not found')
+    }
+
+    const location = findMessageLocation(session, updatedMessage.id)
+    if (!location) {
+      return session
+    }
+
+    const previousMessageIndex = location.index - 1
+    if (previousMessageIndex < 0) {
+      return session
+    }
+
+    const forkMessageId = location.list[previousMessageIndex].id
+    const patch = buildCreateEditedMessageForkPatch(session, forkMessageId, updatedMessage, (message) => {
+      forkedMessage = message
+    })
+    if (!patch) {
+      return session
+    }
+
+    return {
+      ...session,
+      ...patch,
+    }
+  })
+
+  return forkedMessage
+}
+
 // ============= Internal helper functions =============
+
+function createEmptyForkEntry(): MessageForkEntry {
+  return {
+    position: 0,
+    lists: [
+      {
+        id: `fork_list_${uuidv4()}`,
+        messages: [],
+      },
+    ],
+    createdAt: Date.now(),
+  }
+}
+
+function buildForkedMessageCopy(message: Message): Message {
+  const forkedMessage = copyMessage(message)
+  forkedMessage.wordCount = countMessageWords(forkedMessage)
+  forkedMessage.tokenCount = estimateTokensFromMessages([forkedMessage])
+  forkedMessage.tokenCountMap = undefined
+  forkedMessage.timestamp = Date.now()
+  return forkedMessage
+}
 
 function buildSwitchForkPatch(
   session: Session,
@@ -232,17 +291,7 @@ function buildCreateForkPatch(session: Session, forkMessageId: string): Partial<
   return applyForkTransform(
     session,
     forkMessageId,
-    () =>
-      session.messageForksHash?.[forkMessageId] ?? {
-        position: 0,
-        lists: [
-          {
-            id: `fork_list_${uuidv4()}`,
-            messages: [],
-          },
-        ],
-        createdAt: Date.now(),
-      },
+    () => session.messageForksHash?.[forkMessageId] ?? createEmptyForkEntry(),
     (messages, forkEntry) => {
       const forkMessageIndex = messages.findIndex((m) => m.id === forkMessageId)
       if (forkMessageIndex < 0) {
@@ -279,6 +328,60 @@ function buildCreateForkPatch(session: Session, forkMessageId: string): Partial<
 
       return {
         messages: messages.slice(0, forkMessageIndex + 1),
+        forkEntry: updatedFork,
+      }
+    }
+  )
+}
+
+function buildCreateEditedMessageForkPatch(
+  session: Session,
+  forkMessageId: string,
+  updatedMessage: Message,
+  onForkedMessageCreated?: (message: Message) => void
+): Partial<Session> | null {
+  return applyForkTransform(
+    session,
+    forkMessageId,
+    () => session.messageForksHash?.[forkMessageId] ?? createEmptyForkEntry(),
+    (messages, forkEntry) => {
+      const forkMessageIndex = messages.findIndex((m) => m.id === forkMessageId)
+      if (forkMessageIndex < 0) {
+        return null
+      }
+
+      const backupMessages = messages.slice(forkMessageIndex + 1)
+      if (backupMessages.length === 0) {
+        return null
+      }
+
+      const storedListId = `fork_list_${uuidv4()}`
+      const newBranchId = `fork_list_${uuidv4()}`
+      const lists = forkEntry.lists.map((list, index) =>
+        index === forkEntry.position
+          ? {
+              id: storedListId,
+              messages: backupMessages,
+            }
+          : list
+      )
+      const forkedMessage = buildForkedMessageCopy(updatedMessage)
+      onForkedMessageCreated?.(forkedMessage)
+      const nextPosition = lists.length
+      const updatedFork: MessageForkEntry = {
+        ...forkEntry,
+        position: nextPosition,
+        lists: [
+          ...lists,
+          {
+            id: newBranchId,
+            messages: [],
+          },
+        ],
+      }
+
+      return {
+        messages: messages.slice(0, forkMessageIndex + 1).concat(forkedMessage),
         forkEntry: updatedFork,
       }
     }

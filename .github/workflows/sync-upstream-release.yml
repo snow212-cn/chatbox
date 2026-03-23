@@ -1,0 +1,316 @@
+name: Sync Upstream And Release
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: Create a fork release even if no new upstream release or tag is detected
+        required: false
+        type: boolean
+        default: false
+      build_assets:
+        description: Build desktop artifacts before creating the release
+        required: false
+        type: boolean
+        default: true
+      draft_release:
+        description: Create the GitHub release as a draft
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-release
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: chatboxai/chatbox
+  MAIN_BRANCH: main
+  PATCH_BRANCH: patch
+
+jobs:
+  sync:
+    name: Sync Main And Patch
+    runs-on: ubuntu-latest
+    outputs:
+      main_updated: ${{ steps.sync.outputs.main_updated }}
+      patch_updated: ${{ steps.sync.outputs.patch_updated }}
+      patch_sha: ${{ steps.release_context.outputs.patch_sha }}
+      upstream_tag: ${{ steps.release_context.outputs.upstream_tag }}
+      release_tag: ${{ steps.release_context.outputs.release_tag }}
+      release_name: ${{ steps.release_context.outputs.release_name }}
+      should_release: ${{ steps.release_context.outputs.should_release }}
+      should_build: ${{ steps.release_context.outputs.should_build }}
+      draft_release: ${{ steps.release_context.outputs.draft_release }}
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Configure upstream remote
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git remote get-url upstream >/dev/null 2>&1; then
+            git remote set-url upstream "https://github.com/${UPSTREAM_REPO}.git"
+          else
+            git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          fi
+
+      - name: Fetch branches and tags
+        run: |
+          git fetch origin "${MAIN_BRANCH}" "${PATCH_BRANCH}" --tags --prune
+          git fetch upstream "${MAIN_BRANCH}" --tags --prune
+
+      - name: Sync upstream main into main and patch
+        id: sync
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          main_updated=false
+          patch_updated=false
+
+          git checkout -B "${MAIN_BRANCH}" "origin/${MAIN_BRANCH}"
+
+          if [ "$(git rev-list --count "origin/${MAIN_BRANCH}..upstream/${MAIN_BRANCH}")" -gt 0 ]; then
+            git merge --ff-only "upstream/${MAIN_BRANCH}"
+            git push origin "HEAD:${MAIN_BRANCH}"
+            main_updated=true
+          fi
+
+          git fetch origin "${MAIN_BRANCH}" "${PATCH_BRANCH}" --prune
+          git checkout -B "${PATCH_BRANCH}" "origin/${PATCH_BRANCH}"
+
+          patch_before="$(git rev-parse HEAD)"
+
+          if ! git merge --no-ff --no-edit "origin/${MAIN_BRANCH}"; then
+            git merge --abort || true
+            echo "::error::Failed to merge origin/${MAIN_BRANCH} into ${PATCH_BRANCH}. Resolve the conflict on ${PATCH_BRANCH} manually."
+            exit 1
+          fi
+
+          patch_after="$(git rev-parse HEAD)"
+
+          if [ "${patch_before}" != "${patch_after}" ]; then
+            git push origin "HEAD:${PATCH_BRANCH}"
+            patch_updated=true
+          fi
+
+          {
+            echo "main_updated=${main_updated}"
+            echo "patch_updated=${patch_updated}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Compute release context
+        id: release_context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_RELEASE: ${{ inputs.force_release && 'true' || 'false' }}
+          BUILD_ASSETS: ${{ inputs.build_assets != false && 'true' || 'false' }}
+          DRAFT_RELEASE: ${{ inputs.draft_release != false && 'true' || 'false' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch origin "${PATCH_BRANCH}" --prune
+          git checkout -B "${PATCH_BRANCH}" "origin/${PATCH_BRANCH}"
+
+          patch_sha="$(git rev-parse HEAD)"
+          short_sha="${patch_sha:0:7}"
+
+          upstream_tag="$(gh api "repos/${UPSTREAM_REPO}/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
+          if [ -z "${upstream_tag}" ] || [ "${upstream_tag}" = "null" ]; then
+            upstream_tag="$(gh api "repos/${UPSTREAM_REPO}/tags?per_page=1" --jq '.[0].name' 2>/dev/null || true)"
+          fi
+          if [ "${upstream_tag}" = "null" ]; then
+            upstream_tag=""
+          fi
+
+          should_release=false
+          should_build=false
+
+          if [ -n "${upstream_tag}" ]; then
+            release_tag="fork-${upstream_tag}"
+            release_name="Fork ${upstream_tag}"
+            if ! gh release view "${release_tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+              should_release=true
+            fi
+          else
+            release_tag="fork-manual-${short_sha}"
+            release_name="Fork manual ${short_sha}"
+          fi
+
+          if [ "${FORCE_RELEASE}" = "true" ]; then
+            if [ -n "${upstream_tag}" ]; then
+              release_tag="fork-${upstream_tag}-${short_sha}"
+              release_name="Fork ${upstream_tag} (${short_sha})"
+            fi
+            should_release=true
+          fi
+
+          if [ "${should_release}" = "true" ] && [ "${BUILD_ASSETS}" = "true" ]; then
+            should_build=true
+          fi
+
+          {
+            echo "patch_sha=${patch_sha}"
+            echo "upstream_tag=${upstream_tag}"
+            echo "release_tag=${release_tag}"
+            echo "release_name=${release_name}"
+            echo "should_release=${should_release}"
+            echo "should_build=${should_build}"
+            echo "draft_release=${DRAFT_RELEASE}"
+          } >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: Build ${{ matrix.label }}
+    needs: sync
+    if: needs.sync.outputs.should_build == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: Linux
+            target: --linux
+            artifact_name: release-linux
+          - os: windows-latest
+            label: Windows
+            target: --win
+            artifact_name: release-windows
+          - os: macos-latest
+            label: macOS
+            target: --mac
+            artifact_name: release-macos
+    steps:
+      - name: Checkout patch commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.sync.outputs.patch_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Prepare unsigned Windows builder config
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -v '^  sign:' electron-builder.yml > electron-builder.ci.yml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build desktop artifacts
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          UPDATE_CHANNEL: latest
+        shell: bash
+        run: |
+          set -euo pipefail
+          config_file="electron-builder.yml"
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            config_file="electron-builder.ci.yml"
+          fi
+          pnpm exec electron-builder build --publish never -c "${config_file}" ${{ matrix.target }}
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: release/build/**
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs:
+      - sync
+      - build
+    if: |
+      always() &&
+      needs.sync.outputs.should_release == 'true' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download built artifacts
+        if: needs.sync.outputs.should_build == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate release notes
+        id: notes
+        env:
+          RELEASE_NAME: ${{ needs.sync.outputs.release_name }}
+          RELEASE_TAG: ${{ needs.sync.outputs.release_tag }}
+          PATCH_SHA: ${{ needs.sync.outputs.patch_sha }}
+          UPSTREAM_TAG: ${{ needs.sync.outputs.upstream_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<EOF
+          ${RELEASE_NAME}
+
+          This release is generated from the fork's \`${PATCH_BRANCH}\` branch after syncing \`${MAIN_BRANCH}\` with \`${UPSTREAM_REPO}\`.
+
+          - Patch commit: \`${PATCH_SHA}\`
+          - Upstream reference: \`${UPSTREAM_TAG:-no upstream tag detected}\`
+          - Workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+
+          Notes:
+          - \`${MAIN_BRANCH}\` remains the upstream-tracking branch.
+          - \`${PATCH_BRANCH}\` remains the release branch with fork-specific changes.
+          - Scheduled runs create releases only when a new upstream release or tag has not already been mirrored in this fork.
+          EOF
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          draft_flag=""
+          if [ "${{ needs.sync.outputs.draft_release }}" = "true" ]; then
+            draft_flag="--draft"
+          fi
+          gh release create "${{ needs.sync.outputs.release_tag }}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${{ needs.sync.outputs.patch_sha }}" \
+            --title "${{ needs.sync.outputs.release_name }}" \
+            --notes-file release-notes.md \
+            ${draft_flag}
+
+      - name: Upload release assets
+        if: needs.sync.outputs.should_build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find release-assets -type f)
+          if [ "${#files[@]}" -gt 0 ]; then
+            gh release upload "${{ needs.sync.outputs.release_tag }}" "${files[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
+          fi

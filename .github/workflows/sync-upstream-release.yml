@@ -49,7 +49,7 @@ jobs:
       draft_release: ${{ steps.release_context.outputs.draft_release }}
     steps:
       - name: Checkout default branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -197,18 +197,16 @@ jobs:
             artifact_name: release-macos
     steps:
       - name: Checkout patch commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ needs.sync.outputs.patch_sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: pnpm
@@ -237,7 +235,7 @@ jobs:
           pnpm exec electron-builder build --publish never -c "${config_file}" ${{ matrix.target }}
 
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact_name }}
           path: release/build/**
@@ -256,7 +254,7 @@ jobs:
     steps:
       - name: Download built artifacts
         if: needs.sync.outputs.should_build == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: release-assets
           merge-multiple: true

@@ -261,7 +261,16 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact_name }}
-          path: release/build/**
+          path: |
+            release/build/*.exe
+            release/build/*.dmg
+            release/build/*.zip
+            release/build/*.AppImage
+            release/build/*.deb
+            release/build/*.rpm
+            release/build/*.pkg
+            release/build/*.msi
+            release/build/*.blockmap
           if-no-files-found: error
 
   release:
@@ -345,6 +354,15 @@ jobs:
                 -name '*.blockmap' \
               \)
           )
-          if [ "${#files[@]}" -gt 0 ]; then
-            gh release upload "${{ needs.sync.outputs.release_tag }}" "${files[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
+          declare -A seen=()
+          unique_files=()
+          for file in "${files[@]}"; do
+            base_name="$(basename "${file}")"
+            if [ -z "${seen[${base_name}]+x}" ]; then
+              unique_files+=("${file}")
+              seen["${base_name}"]=1
+            fi
+          done
+          if [ "${#unique_files[@]}" -gt 0 ]; then
+            gh release upload "${{ needs.sync.outputs.release_tag }}" "${unique_files[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
           fi

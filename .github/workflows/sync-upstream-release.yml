@@ -5,21 +5,16 @@ on:
     - cron: "17 */6 * * *"
   workflow_dispatch:
     inputs:
-      force_release:
-        description: Create a fork release even if no new upstream release or tag is detected
-        required: false
-        type: boolean
-        default: false
       build_assets:
         description: Build desktop artifacts before creating the release
         required: false
         type: boolean
         default: true
       draft_release:
-        description: Create the GitHub release as a draft
+        description: Keep the release as a draft
         required: false
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write
@@ -117,9 +112,8 @@ jobs:
         id: release_context
         env:
           GH_TOKEN: ${{ github.token }}
-          FORCE_RELEASE: ${{ inputs.force_release && 'true' || 'false' }}
           BUILD_ASSETS: ${{ inputs.build_assets != false && 'true' || 'false' }}
-          DRAFT_RELEASE: ${{ inputs.draft_release != false && 'true' || 'false' }}
+          DRAFT_RELEASE: ${{ inputs.draft_release == true && 'true' || 'false' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -144,20 +138,11 @@ jobs:
           if [ -n "${upstream_tag}" ]; then
             release_tag="fork-${upstream_tag}"
             release_name="Fork ${upstream_tag}"
-            if ! gh release view "${release_tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-              should_release=true
-            fi
-          else
-            release_tag="fork-manual-${short_sha}"
-            release_name="Fork manual ${short_sha}"
-          fi
-
-          if [ "${FORCE_RELEASE}" = "true" ]; then
-            if [ -n "${upstream_tag}" ]; then
-              release_tag="fork-${upstream_tag}-${short_sha}"
-              release_name="Fork ${upstream_tag} (${short_sha})"
-            fi
             should_release=true
+          else
+            echo "::notice::No upstream release/tag detected; skipping release creation."
+            release_tag=""
+            release_name=""
           fi
 
           if [ "${should_release}" = "true" ] && [ "${BUILD_ASSETS}" = "true" ]; then
@@ -322,16 +307,50 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          draft_flag=""
-          if [ "${{ needs.sync.outputs.draft_release }}" = "true" ]; then
-            draft_flag="--draft"
+          if [ -n "${{ needs.sync.outputs.upstream_tag }}" ]; then
+            prefix="fork-${{ needs.sync.outputs.upstream_tag }}-"
+            gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq '.[] | select(.draft == true) | [.tag_name, .id] | @tsv' |
+              while IFS=$'\t' read -r tag_name release_id; do
+                if [[ "${tag_name}" == ${prefix}* ]]; then
+                  gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}"
+                fi
+              done
           fi
-          gh release create "${{ needs.sync.outputs.release_tag }}" \
+
+          draft_args=()
+          if gh release view "${{ needs.sync.outputs.release_tag }}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            if [ "${{ needs.sync.outputs.draft_release }}" = "true" ]; then
+              draft_args=(--draft=true)
+            else
+              draft_args=(--draft=false)
+            fi
+            gh release edit "${{ needs.sync.outputs.release_tag }}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --target "${{ needs.sync.outputs.patch_sha }}" \
+              --title "${{ needs.sync.outputs.release_name }}" \
+              "${draft_args[@]}"
+          else
+            create_args=()
+            if [ "${{ needs.sync.outputs.draft_release }}" = "true" ]; then
+              create_args+=(--draft)
+            fi
+            gh release create "${{ needs.sync.outputs.release_tag }}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --target "${{ needs.sync.outputs.patch_sha }}" \
+              --title "${{ needs.sync.outputs.release_name }}" \
+              --notes-file release-notes.md \
+              "${create_args[@]}"
+          fi
+
+      - name: Update release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit "${{ needs.sync.outputs.release_tag }}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --target "${{ needs.sync.outputs.patch_sha }}" \
-            --title "${{ needs.sync.outputs.release_name }}" \
-            --notes-file release-notes.md \
-            ${draft_flag}
+            --notes-file release-notes.md
 
       - name: Upload release assets
         if: needs.sync.outputs.should_build == 'true'

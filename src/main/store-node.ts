@@ -7,6 +7,43 @@ import * as defaults from '../shared/defaults'
 import type { Config, Settings } from '../shared/types'
 import { getLogger } from './util'
 
+const appDataPath = app.getPath('appData')
+const sharedUserDataPath = app.getPath('userData')
+const isolatedUserDataPath = path.resolve(appDataPath, 'Chatbox Fork')
+const legacyUserDataCandidates = Array.from(
+  new Set([
+    sharedUserDataPath,
+    path.resolve(appDataPath, 'xyz.chatboxapp.app'),
+    path.resolve(appDataPath, 'xyz.chatboxapp.ce'),
+  ])
+)
+
+if (sharedUserDataPath !== isolatedUserDataPath) {
+  try {
+    const isolatedExists = fs.existsSync(isolatedUserDataPath)
+
+    app.setPath('userData', isolatedUserDataPath)
+
+    // First-run migration: merge data from known legacy Chatbox userData
+    // locations into the fork's own directory once, then isolate future writes.
+    if (!isolatedExists) {
+      fs.ensureDirSync(isolatedUserDataPath)
+      for (const legacyPath of legacyUserDataCandidates) {
+        if (!fs.existsSync(legacyPath) || legacyPath === isolatedUserDataPath) {
+          continue
+        }
+        fs.copySync(legacyPath, isolatedUserDataPath, {
+          dereference: true,
+          overwrite: false,
+          errorOnExist: false,
+        })
+      }
+    }
+  } catch (error) {
+    app.setPath('userData', isolatedUserDataPath)
+  }
+}
+
 const logger = getLogger('store-node')
 
 const configPath = path.resolve(app.getPath('userData'), 'config.json')

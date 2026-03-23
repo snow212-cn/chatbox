@@ -340,9 +340,9 @@ jobs:
                 -name '*.AppImage' -o \
                 -name '*.deb' -o \
                 -name '*.rpm' -o \
-                -name '*.blockmap' -o \
-                -name '*.yml' -o \
-                -name '*.yaml' \
+                -name '*.pkg' -o \
+                -name '*.msi' -o \
+                -name '*.blockmap' \
               \)
           )
           if [ "${#files[@]}" -gt 0 ]; then

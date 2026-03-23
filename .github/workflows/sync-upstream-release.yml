@@ -255,8 +255,8 @@ jobs:
             release/build/*.rpm
             release/build/*.pkg
             release/build/*.msi
-            release/build/*.blockmap
           if-no-files-found: error
+          compression-level: 0
 
   release:
     name: Create GitHub Release
@@ -268,6 +268,7 @@ jobs:
       needs.sync.outputs.should_release == 'true' &&
       (needs.build.result == 'success' || needs.build.result == 'skipped')
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Download built artifacts
         if: needs.sync.outputs.should_build == 'true'
@@ -352,6 +353,14 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --notes-file release-notes.md
 
+      - name: List downloaded assets
+        if: needs.sync.outputs.should_build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Downloaded files:"
+          find release-assets -maxdepth 2 -type f | sort
+
       - name: Upload release assets
         if: needs.sync.outputs.should_build == 'true'
         env:
@@ -369,8 +378,7 @@ jobs:
                 -name '*.deb' -o \
                 -name '*.rpm' -o \
                 -name '*.pkg' -o \
-                -name '*.msi' -o \
-                -name '*.blockmap' \
+                -name '*.msi' \
               \)
           )
           declare -A seen=()
@@ -383,8 +391,24 @@ jobs:
             fi
           done
           if [ "${#unique_files[@]}" -gt 0 ]; then
-            printf 'Uploading assets:\n%s\n' "${unique_files[@]}"
-            gh release upload "${{ needs.sync.outputs.release_tag }}" "${unique_files[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
+            ordered_files=()
+            for file in "${unique_files[@]}"; do
+              base_name="$(basename "${file}")"
+              case "${base_name}" in
+                *-Setup.exe|*.exe)
+                  ordered_files=("${file}" "${ordered_files[@]}")
+                  ;;
+                *)
+                  ordered_files+=("${file}")
+                  ;;
+              esac
+            done
+            printf 'Upload order:\n%s\n' "${ordered_files[@]}"
+            for file in "${ordered_files[@]}"; do
+              base_name="$(basename "${file}")"
+              echo "Uploading ${base_name}"
+              timeout 1800 gh release upload "${{ needs.sync.outputs.release_tag }}" "${file}" --repo "${GITHUB_REPOSITORY}" --clobber
+            done
           else
             echo "::error::No distributable release assets were found in release-assets."
             exit 1

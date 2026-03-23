@@ -331,7 +331,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t files < <(find release-assets -type f)
+          mapfile -t files < <(
+            find release-assets -type f \
+              \( \
+                -name '*.exe' -o \
+                -name '*.dmg' -o \
+                -name '*.zip' -o \
+                -name '*.AppImage' -o \
+                -name '*.deb' -o \
+                -name '*.rpm' -o \
+                -name '*.blockmap' -o \
+                -name '*.yml' -o \
+                -name '*.yaml' \
+              \)
+          )
           if [ "${#files[@]}" -gt 0 ]; then
             gh release upload "${{ needs.sync.outputs.release_tag }}" "${files[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
           fi

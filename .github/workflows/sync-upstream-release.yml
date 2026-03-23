@@ -210,6 +210,17 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/electron
+            .cache/electron-builder
+          key: ${{ runner.os }}-electron-${{ hashFiles('pnpm-lock.yaml', 'electron-builder.yml', 'package.json', 'release/app/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
 
       - name: Prepare unsigned Windows builder config
         if: runner.os == 'Windows'
@@ -221,10 +232,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build app
+        env:
+          ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+          ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.cache/electron-builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec ts-node ./.erb/scripts/clean.js
+          pnpm run build
+
       - name: Build desktop artifacts
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
           UPDATE_CHANNEL: latest
+          ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+          ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.cache/electron-builder
         shell: bash
         run: |
           set -euo pipefail

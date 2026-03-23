@@ -341,7 +341,7 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t files < <(
-            find release-assets -type f \
+            find release-assets -maxdepth 1 -type f \
               \( \
                 -name '*.exe' -o \
                 -name '*.dmg' -o \
@@ -364,5 +364,9 @@ jobs:
             fi
           done
           if [ "${#unique_files[@]}" -gt 0 ]; then
+            printf 'Uploading assets:\n%s\n' "${unique_files[@]}"
             gh release upload "${{ needs.sync.outputs.release_tag }}" "${unique_files[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
+          else
+            echo "::error::No distributable release assets were found in release-assets."
+            exit 1
           fi

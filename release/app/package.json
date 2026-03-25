@@ -1,6 +1,6 @@
 {
-  "name": "xyz.chatboxapp.ce",
-  "productName": "xyz.chatboxapp.ce",
+  "name": "xyz.chatboxapp.app",
+  "productName": "xyz.chatboxapp.app",
   "version": "1.19.1",
   "description": "A desktop client for multiple cutting-edge AI models",
   "author": {

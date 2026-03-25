@@ -12,6 +12,7 @@ import {
   type Updater,
   type UpdaterFn,
 } from '@shared/types'
+import { getFirstVisibleMessage, hasMeaningfulMessageContent } from '@shared/utils/message'
 import { useQuery } from '@tanstack/react-query'
 import compact from 'lodash/compact'
 import isEmpty from 'lodash/isEmpty'
@@ -457,16 +458,18 @@ export async function removeMessage(sessionId: string, messageId: string) {
       : session.compactionPoints
 
     // Clean up empty fork branches after message removal and auto-switch if needed
-    const { messages: finalMessages, messageForksHash: newMessageForksHash } = cleanupEmptyForkBranches(
+    const { messages: finalMessages, threads: finalThreads, messageForksHash: newMessageForksHash } =
+      cleanupEmptyForkBranches(
       session.messageForksHash,
       newMessages,
-      newThreads
+      newThreads,
+      messageId
     )
 
     return {
       ...session,
       messages: finalMessages,
-      threads: newThreads,
+      threads: finalThreads,
       messageForksHash: newMessageForksHash,
       compactionPoints: newCompactionPoints,
     }
@@ -481,89 +484,168 @@ export async function removeMessage(sessionId: string, messageId: string) {
 function cleanupEmptyForkBranches(
   messageForksHash: Session['messageForksHash'],
   messages: Message[],
-  threads: Session['threads']
-): { messages: Message[]; messageForksHash: Session['messageForksHash'] } {
+  threads: Session['threads'],
+  removedMessageId?: string
+): { messages: Message[]; threads: Session['threads']; messageForksHash: Session['messageForksHash'] } {
   if (!messageForksHash) {
-    return { messages, messageForksHash }
+    return { messages, threads, messageForksHash }
   }
 
   let resultHash: Session['messageForksHash'] = messageForksHash
   let resultMessages = messages
+  let resultThreads = threads
+  // A branch is only meaningful for navigation when it still has assistant
+  // output with visible content. If it only keeps user-side messages or empty
+  // assistant placeholders, we treat it as empty and collapse it.
+  const hasAssistantOutput = (branchMessages: Message[]) =>
+    branchMessages.some((msg) => msg.role === 'assistant' && hasMeaningfulMessageContent(msg))
 
-  for (const [forkMessageId, forkEntry] of Object.entries(messageForksHash)) {
-    // Check if fork point exists in messages
-    const forkIndexInMessages = resultMessages.findIndex((m) => m.id === forkMessageId)
+  const removeForkEntry = (forkMessageId: string) => {
+    const { [forkMessageId]: _removed, ...rest } = resultHash ?? {}
+    resultHash = Object.keys(rest).length ? rest : undefined
+  }
 
-    if (forkIndexInMessages >= 0) {
-      // Fork is in main messages - check if tail is empty fork point 是 user msg，之后的 bot msg 是具体的分叉
-      // 当用户这条消息(fork point)是最后一条消息，后面没了 bot msg，则当前分支是空的
-      const currentBranchIsEmpty = forkIndexInMessages === resultMessages.length - 1
-
-      if (currentBranchIsEmpty) {
-        // Remove current branch from lists
-        const remainingLists = forkEntry.lists.filter((_, index) => index !== forkEntry.position)
-
-        if (remainingLists.length <= 1) {
-          // Only one or zero branches left - remove the fork and load remaining messages
-          const remainingBranchMessages = remainingLists[0]?.messages ?? []
-          // Append remaining branch messages after the fork point
-          resultMessages = resultMessages.slice(0, forkIndexInMessages + 1).concat(remainingBranchMessages)
-          // Remove this fork from hash
-          const { [forkMessageId]: _removed, ...rest } = resultHash ?? {}
-          resultHash = Object.keys(rest).length ? rest : undefined
-        } else {
-          // Multiple branches remain - switch to nearest position and load its messages
-          const newPosition = Math.min(forkEntry.position, remainingLists.length - 1)
-          const newBranchMessages = remainingLists[newPosition]?.messages ?? []
-
-          // Load the new branch's messages
-          resultMessages = resultMessages.slice(0, forkIndexInMessages + 1).concat(newBranchMessages)
-
-          // Clear the messages from the loaded branch (since they're now in main messages)
-          const updatedLists = remainingLists.map((list, index) =>
-            index === newPosition ? { ...list, messages: [] } : list
-          )
-
-          resultHash = {
-            ...resultHash,
-            [forkMessageId]: {
-              ...forkEntry,
-              position: newPosition,
-              lists: updatedLists,
-            },
-          }
-        }
-      }
-    } else if (threads) {
-      // Fork might be in threads - just update the hash without modifying main messages
-      for (const thread of threads) {
-        const forkIndexInThread = thread.messages.findIndex((m) => m.id === forkMessageId)
-        if (forkIndexInThread >= 0) {
-          const currentBranchIsEmpty = forkIndexInThread === thread.messages.length - 1
-          if (currentBranchIsEmpty) {
-            const remainingLists = forkEntry.lists.filter((_, index) => index !== forkEntry.position)
-            if (remainingLists.length <= 1) {
-              const { [forkMessageId]: _removed, ...rest } = resultHash ?? {}
-              resultHash = Object.keys(rest).length ? rest : undefined
-            } else {
-              const newPosition = Math.min(forkEntry.position, remainingLists.length - 1)
-              resultHash = {
-                ...resultHash,
-                [forkMessageId]: {
-                  ...forkEntry,
-                  position: newPosition,
-                  lists: remainingLists,
-                },
-              }
-            }
-          }
-          break
-        }
-      }
+  const applyForkEntry = (forkMessageId: string, entry: NonNullable<Session['messageForksHash']>[string]) => {
+    resultHash = {
+      ...(resultHash ?? {}),
+      [forkMessageId]: entry,
     }
   }
 
-  return { messages: resultMessages, messageForksHash: resultHash }
+  for (const [forkMessageId, originalForkEntry] of Object.entries(messageForksHash)) {
+    const nextEntry = resultHash?.[forkMessageId] ?? originalForkEntry
+    const forkEntry = removedMessageId
+      ? {
+          ...nextEntry,
+          lists: nextEntry.lists.map((list) => ({
+            ...list,
+            messages: list.messages.filter((msg) => msg.id !== removedMessageId),
+          })),
+        }
+      : nextEntry
+
+    if (!forkEntry) {
+      continue
+    }
+
+    const rootIndex = resultMessages.findIndex((m) => m.id === forkMessageId)
+    const rootContainer = rootIndex >= 0
+
+    const threadIndex = rootContainer
+      ? -1
+      : (resultThreads?.findIndex((thread) => thread.messages.some((m) => m.id === forkMessageId)) ?? -1)
+
+    if (!rootContainer && threadIndex < 0) {
+      // Stale fork entry: fork point no longer exists
+      removeForkEntry(forkMessageId)
+      continue
+    }
+
+    const containerMessages = rootContainer ? resultMessages : (resultThreads?.[threadIndex]?.messages ?? [])
+    const forkIndex = rootContainer
+      ? rootIndex
+      : containerMessages.findIndex((m) => m.id === forkMessageId)
+    if (forkIndex < 0) {
+      removeForkEntry(forkMessageId)
+      continue
+    }
+
+    const currentTail = containerMessages.slice(forkIndex + 1)
+    const currentBranchIsEmpty = !hasAssistantOutput(currentTail)
+
+    const keptLists: NonNullable<Session['messageForksHash']>[string]['lists'] = []
+    let mappedCurrentPosition = -1
+
+    forkEntry.lists.forEach((list, index) => {
+      if (index === forkEntry.position) {
+        if (!currentBranchIsEmpty) {
+          mappedCurrentPosition = keptLists.length
+          keptLists.push({
+            ...list,
+            messages: [],
+          })
+        }
+        return
+      }
+
+      if (hasAssistantOutput(list.messages)) {
+        keptLists.push(list)
+      }
+    })
+
+    const prefix = containerMessages.slice(0, forkIndex + 1)
+
+    // No branch left at all
+    if (keptLists.length === 0) {
+      if (rootContainer) {
+        resultMessages = prefix
+      } else if (resultThreads && threadIndex >= 0) {
+        resultThreads = resultThreads.map((thread, idx) =>
+          idx === threadIndex ? { ...thread, messages: prefix } : thread
+        )
+      }
+      removeForkEntry(forkMessageId)
+      continue
+    }
+
+    // Only one branch left -> no need to keep fork navigation
+    if (keptLists.length === 1) {
+      const remainingMessages = currentBranchIsEmpty ? keptLists[0].messages : currentTail
+      if (rootContainer) {
+        resultMessages = prefix.concat(remainingMessages)
+      } else if (resultThreads && threadIndex >= 0) {
+        resultThreads = resultThreads.map((thread, idx) =>
+          idx === threadIndex ? { ...thread, messages: prefix.concat(remainingMessages) } : thread
+        )
+      }
+      removeForkEntry(forkMessageId)
+      continue
+    }
+
+    if (currentBranchIsEmpty) {
+      const fallbackPosition = Math.min(forkEntry.position, keptLists.length - 1)
+      const nextBranchMessages = keptLists[fallbackPosition]?.messages ?? []
+      const normalizedLists = keptLists.map((list, index) =>
+        index === fallbackPosition
+          ? {
+              ...list,
+              messages: [],
+            }
+          : list
+      )
+
+      if (rootContainer) {
+        resultMessages = prefix.concat(nextBranchMessages)
+      } else if (resultThreads && threadIndex >= 0) {
+        resultThreads = resultThreads.map((thread, idx) =>
+          idx === threadIndex ? { ...thread, messages: prefix.concat(nextBranchMessages) } : thread
+        )
+      }
+
+      applyForkEntry(forkMessageId, {
+        ...forkEntry,
+        position: fallbackPosition,
+        lists: normalizedLists,
+      })
+      continue
+    }
+
+    const normalizedPosition = mappedCurrentPosition >= 0 ? mappedCurrentPosition : 0
+    applyForkEntry(forkMessageId, {
+      ...forkEntry,
+      position: normalizedPosition,
+      lists: keptLists.map((list, index) =>
+        index === normalizedPosition
+          ? {
+              ...list,
+              messages: [],
+            }
+          : list
+      ),
+    })
+  }
+
+  return { messages: resultMessages, threads: resultThreads, messageForksHash: resultHash }
 }
 
 // MARK: data recovery operations
@@ -590,7 +672,7 @@ export async function recoverSessionList() {
       const session = await storage.getItem<Session | null>(key, null)
       if (session) {
         const migratedSession = migrateSession(session)
-        const firstMessageTimestamp = migratedSession.messages[0]?.timestamp || 0
+        const firstMessageTimestamp = getFirstVisibleMessage(migratedSession.messages)?.timestamp || 0
         sessionsWithTimestamp.push({
           meta: getSessionMeta(migratedSession),
           timestamp: firstMessageTimestamp,

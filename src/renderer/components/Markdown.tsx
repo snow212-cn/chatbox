@@ -58,8 +58,10 @@ import {
 import clsx from 'clsx'
 import { visit } from 'unist-util-visit'
 import { useCopied } from '@/hooks/useCopied'
+import platform from '@/platform'
 import { deployHtmlToEdgeOne } from '../packages/edgeone'
 import * as toastActions from '../stores/toastActions'
+import { isLikelyLocalFileLink, normalizeWindowsMarkdownLinks, toOpenableLocalFileUrl } from '@shared/local-links'
 import IconDart from './icons/Dart'
 import IconJava from './icons/Java'
 import { MessageMermaid, SVGPreview } from './Mermaid'
@@ -100,7 +102,8 @@ function Markdown(props: {
     forceColorScheme,
   } = props
 
-  const codeFences = useMemo(() => (children.match(/```/g) || []).length, [children])
+  const normalizedChildren = useMemo(() => normalizeWindowsMarkdownLinks(children), [children])
+  const codeFences = useMemo(() => (normalizedChildren.match(/```/g) || []).length, [normalizedChildren])
   const generatingCodeIndex = useMemo(() => (codeFences % 2 === 0 ? -1 : Math.floor(codeFences / 2)), [codeFences])
 
   return (
@@ -113,8 +116,8 @@ function Markdown(props: {
       rehypePlugins={[rehypeKatex]}
       className={`break-words ${className || ''}`}
       // react-markdown's default defaultUrlTransform will incorrectly encode query parameters in URLs (e.g. & becomes &amp;)
-      // Use sanitizeUrl here to avoid that and to prevent XSS attacks
-      urlTransform={(url) => sanitizeUrl(url)}
+      // Use sanitizeUrl for web links while preserving local file links on desktop.
+      urlTransform={(url) => (isLikelyLocalFileLink(url) ? toOpenableLocalFileUrl(url) : sanitizeUrl(url))}
       components={useMemo(
         () => ({
           // biome-ignore lint/suspicious/noExplicitAny: react-markdown code component props are loosely typed
@@ -131,13 +134,19 @@ function Markdown(props: {
               />
             )
           },
-          a: ({ node, ...props }) => (
+          a: ({ node, href, ...props }) => (
             <a
               {...props}
+              href={href}
               target="_blank"
               rel="noreferrer"
               onClick={(e) => {
                 e.stopPropagation()
+                if (!href || !isLikelyLocalFileLink(href)) {
+                  return
+                }
+                e.preventDefault()
+                platform.openLink(href)
               }}
             />
           ),
@@ -145,7 +154,7 @@ function Markdown(props: {
         [uniqueId, hiddenCodeCopyButton, enableMermaidRendering, generating, generatingCodeIndex, forceColorScheme]
       )}
     >
-      {enableLaTeXRendering ? latex.processLaTeX(children) : children}
+      {enableLaTeXRendering ? latex.processLaTeX(normalizedChildren) : normalizedChildren}
     </ReactMarkdown>
   )
 }

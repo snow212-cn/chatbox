@@ -24,6 +24,7 @@ export {
   getMessageThreadContext,
   getSessionWebBrowsing,
   regenerateInNewFork,
+  resendEditedMessageInNewFork,
 } from './session/generation'
 // Re-export message operations from session/messages.ts
 export {

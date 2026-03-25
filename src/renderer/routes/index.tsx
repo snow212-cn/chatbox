@@ -2,6 +2,7 @@ import NiceModal from '@ebay/nice-modal-react'
 import { ActionIcon, Avatar, Box, Button, Divider, Flex, Paper, ScrollArea, Space, Stack, Text } from '@mantine/core'
 import type { CopilotDetail, Session } from '@shared/types'
 import { ModelProviderEnum } from '@shared/types'
+import { getFirstVisibleMessage, getMessageText } from '@shared/utils/message'
 import { IconChevronLeft, IconChevronRight, IconX } from '@tabler/icons-react'
 import { createFileRoute, useRouterState } from '@tanstack/react-router'
 import { zodValidator } from '@tanstack/zod-adapter'
@@ -241,8 +242,7 @@ function Index() {
                 </Flex>
 
                 <Text c="chatbox-secondary" className="line-clamp-5">
-                  {session.messages[0]?.contentParts?.map((part) => (part.type === 'text' ? part.text : '')).join('') ||
-                    ''}
+                  {getMessageText(getFirstVisibleMessage(session.messages) ?? { role: 'user', id: '', contentParts: [] })}
                 </Text>
               </Stack>
             </Box>

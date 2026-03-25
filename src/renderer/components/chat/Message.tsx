@@ -3,7 +3,7 @@ import { ActionIcon, type ActionIconProps, Flex, Image as Img, Loader, Text, Too
 import { Grid, Typography, useTheme } from '@mui/material'
 import Box from '@mui/material/Box'
 import type { Message, MessagePicture, MessageToolCallPart, SessionType } from '@shared/types'
-import { getMessageText } from '@shared/utils/message'
+import { getMessageText, isSyntheticForkAnchor } from '@shared/utils/message'
 import {
   IconArrowDown,
   IconBug,
@@ -174,6 +174,10 @@ const _Message: FC<Props> = (props) => {
 
   if (shouldThrowError) {
     throw new Error('Manual error triggered from Message component for testing ErrorBoundary')
+  }
+
+  if (isSyntheticForkAnchor(msg)) {
+    return null
   }
 
   const tips: string[] = []

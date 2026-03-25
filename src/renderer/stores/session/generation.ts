@@ -5,6 +5,7 @@ import type { OnResultChangeWithCancel } from '@shared/models/types'
 import {
   type CompactionPoint,
   createMessage,
+  copyMessage,
   type Message,
   type MessageImagePart,
   type MessagePicture,
@@ -13,8 +14,14 @@ import {
   type SessionType,
   type Settings,
 } from '@shared/types'
-import { cloneMessage, getMessageText, mergeMessages } from '@shared/utils/message'
+import {
+  cloneMessage,
+  getMessageText,
+  mergeMessages,
+  SYNTHETIC_FORK_ANCHOR_NAME,
+} from '@shared/utils/message'
 import { identity, pickBy } from 'lodash'
+import { v4 as uuidv4 } from 'uuid'
 import { createModelDependencies } from '@/adapters'
 import * as appleAppStore from '@/packages/apple_app_store'
 import { buildContextForAI } from '@/packages/context-management'
@@ -332,7 +339,162 @@ export async function generateMoreInNewFork(sessionId: string, msgId: string) {
   await generateMore(sessionId, msgId)
 }
 
+/**
+ * Preserve the original conversation as a sibling branch, then resend from an edited message.
+ * This is needed when the edited message itself is part of the divergence point.
+ */
+export async function resendEditedMessageInNewFork(
+  sessionId: string,
+  originalMsg: Message,
+  editedMsg: Message,
+  options?: { runGenerateMore?: GenerateMoreFn }
+) {
+  const runGenerateMore = options?.runGenerateMore ?? generateMore
+  const session = await chatStore.getSession(sessionId)
+  if (!session) {
+    return
+  }
+
+  const location = findMessageLocation(session, originalMsg.id)
+  if (!location) {
+    await modifyMessage(sessionId, editedMsg, true)
+    await runGenerateMore(sessionId, editedMsg.id)
+    return
+  }
+
+  const hasTrailingMessages = location.index < location.list.length - 1
+  if (!hasTrailingMessages) {
+    await modifyMessage(sessionId, editedMsg, true)
+    await runGenerateMore(sessionId, editedMsg.id)
+    return
+  }
+
+  const previousMessageIndex = location.index - 1
+  if (previousMessageIndex < 0) {
+    const branchedMessage = createEditedBranchMessage(editedMsg)
+    const forkAnchor = await createSyntheticForkForFirstMessage(sessionId, originalMsg.id, branchedMessage)
+    if (!forkAnchor) {
+      await modifyMessage(sessionId, editedMsg, true)
+      await generateMoreInNewFork(sessionId, editedMsg.id)
+      return
+    }
+
+    await runGenerateMore(sessionId, branchedMessage.id)
+    return
+  }
+
+  const forkMessage = location.list[previousMessageIndex]
+  await createNewFork(sessionId, forkMessage.id)
+
+  const branchedMessage = createEditedBranchMessage(editedMsg)
+
+  await insertMessageAfter(sessionId, branchedMessage, forkMessage.id)
+  await runGenerateMore(sessionId, branchedMessage.id)
+}
+
 type GenerateMoreFn = (sessionId: string, msgId: string) => Promise<void>
+
+function createEditedBranchMessage(editedMsg: Message): Message {
+  return {
+    ...copyMessage(editedMsg),
+    timestamp: Date.now(),
+    generating: false,
+    cancel: undefined,
+    error: undefined,
+    errorCode: undefined,
+    errorExtra: undefined,
+    status: [],
+    usage: undefined,
+    tokensUsed: undefined,
+    firstTokenLatency: undefined,
+    finishReason: undefined,
+    tokenCount: undefined,
+    tokenCountMap: undefined,
+    updatedAt: undefined,
+  }
+}
+
+function createSyntheticForkEntry(originalBranchMessages: Message[]) {
+  return {
+    createdAt: Date.now(),
+    position: 1,
+    lists: [
+      {
+        id: `fork_list_${uuidv4()}`,
+        messages: originalBranchMessages,
+      },
+      {
+        id: `fork_list_${uuidv4()}`,
+        messages: [],
+      },
+    ],
+  }
+}
+
+async function createSyntheticForkForFirstMessage(
+  sessionId: string,
+  messageId: string,
+  branchedMessage: Message
+): Promise<Message | null> {
+  const forkAnchor = createMessage('system', '')
+  forkAnchor.name = SYNTHETIC_FORK_ANCHOR_NAME
+
+  const updated = await chatStore.updateSessionWithMessages(sessionId, (session) => {
+    if (!session) {
+      throw new Error('Session not found')
+    }
+
+    const rootIndex = session.messages.findIndex((msg) => msg.id === messageId)
+    if (rootIndex === 0) {
+      const originalBranchMessages = session.messages.slice(rootIndex)
+      forkAnchor.timestamp = originalBranchMessages[0]?.timestamp ?? forkAnchor.timestamp
+      return {
+        ...session,
+        messages: [forkAnchor, branchedMessage],
+        messageForksHash: {
+          ...(session.messageForksHash ?? {}),
+          [forkAnchor.id]: createSyntheticForkEntry(originalBranchMessages),
+        },
+      }
+    }
+
+    if (!session.threads?.length) {
+      return session
+    }
+
+    let changed = false
+    let originalBranchMessages: Message[] | null = null
+    const threads = session.threads.map((thread) => {
+      const messageIndex = thread.messages.findIndex((msg) => msg.id === messageId)
+      if (messageIndex !== 0) {
+        return thread
+      }
+      originalBranchMessages = thread.messages.slice(messageIndex)
+      changed = true
+      forkAnchor.timestamp = originalBranchMessages[0]?.timestamp ?? forkAnchor.timestamp
+      return {
+        ...thread,
+        messages: [forkAnchor, branchedMessage],
+      }
+    })
+
+    if (!changed) {
+      return session
+    }
+
+    return {
+      ...session,
+      threads,
+      messageForksHash: {
+        ...(session.messageForksHash ?? {}),
+        [forkAnchor.id]: createSyntheticForkEntry(originalBranchMessages ?? []),
+      },
+    }
+  })
+
+  const location = updated ? findMessageLocation(updated, forkAnchor.id) : null
+  return location ? forkAnchor : null
+}
 
 export async function regenerateInNewFork(
   sessionId: string,
@@ -435,7 +597,7 @@ export async function genMessageContext(
     const keys = Array.from(allStorageKeys)
     const contents = await Promise.all(keys.map((key) => storageGetBlob(key)))
     keys.forEach((key, index) => {
-      blobContents.set(key, contents[index])
+      blobContents.set(key, contents[index] ?? '')
     })
   }
 

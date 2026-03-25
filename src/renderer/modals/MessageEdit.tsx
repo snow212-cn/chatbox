@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { AdaptiveModal } from '@/components/common/AdaptiveModal'
 import { AssistantAvatar, SystemAvatar, UserAvatar } from '@/components/common/Avatar'
 import { useIsSmallScreen } from '@/hooks/useScreenChange'
-import { generateMoreInNewFork, modifyMessage } from '@/stores/sessionActions'
+import { modifyMessage, regenerateInNewFork, resendEditedMessageInNewFork } from '@/stores/sessionActions'
 
 const MessageEdit = NiceModal.create((props: { sessionId: string; msg: Message; hideSaveAndResend?: boolean }) => {
   const modal = useModal()
@@ -128,8 +128,13 @@ const MessageEditModal = ({
     if (!msg) {
       return
     }
-    onSave()
-    void generateMoreInNewFork(sessionId, msg.id)
+    if (msg.role === MessageRoleEnum.Assistant) {
+      void modifyMessage(sessionId, msg, true).then(() => regenerateInNewFork(sessionId, msg))
+      onClose()
+      return
+    }
+    void resendEditedMessageInNewFork(sessionId, origMsg, msg)
+    onClose()
   }
 
   const onContentPartInput = (index: number, text: string) => {

@@ -2,6 +2,8 @@ import { assign, cloneDeep, omit } from 'lodash'
 import type { Message, MessageContentParts, MessagePicture, SearchResultItem } from '../types'
 import { countWord } from './word_count'
 
+export const SYNTHETIC_FORK_ANCHOR_NAME = '__synthetic_fork_anchor__'
+
 export function getMessageText(message: Message, includeImagePlaceHolder = true, includeReasoning = false): string {
   if (message.contentParts && message.contentParts.length > 0) {
     return message.contentParts
@@ -77,8 +79,41 @@ export function cloneMessage(message: Message): Message {
   return cloneDeep(message)
 }
 
+export function hasMeaningfulMessageContent(message: Message): boolean {
+  if (message.error || message.errorCode || message.files?.length || message.links?.length) {
+    return true
+  }
+
+  if (message.reasoningContent?.trim()) {
+    return true
+  }
+
+  return (message.contentParts ?? []).some((part) => {
+    switch (part.type) {
+      case 'text':
+      case 'reasoning':
+      case 'info':
+        return part.text.trim().length > 0
+      default:
+        return true
+    }
+  })
+}
+
 export function isEmptyMessage(message: Message): boolean {
-  return getMessageText(message, true, true).length === 0 && !message.files?.length && !message.links?.length
+  return !hasMeaningfulMessageContent(message)
+}
+
+export function isSyntheticForkAnchor(message: Message): boolean {
+  return (
+    message.role === 'system' &&
+    message.name === SYNTHETIC_FORK_ANCHOR_NAME &&
+    getMessageText(message, true, true).trim() === ''
+  )
+}
+
+export function getFirstVisibleMessage(messages: Message[]): Message | undefined {
+  return messages.find((message) => !isSyntheticForkAnchor(message))
 }
 
 export function countMessageWords(message: Message): number {

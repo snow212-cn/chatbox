@@ -1,6 +1,6 @@
 {
-  "name": "xyz.chatboxapp.ce",
-  "productName": "xyz.chatboxapp.ce",
+  "name": "xyz.chatboxapp.app",
+  "productName": "xyz.chatboxapp.app",
   "version": "0.0.1",
   "engines": {
     "node": ">=20.0.0 <25.0.0",
@@ -17,8 +17,8 @@
     "build:web": "cross-env CHATBOX_BUILD_PLATFORM=web electron-vite build && pnpm run delete-sourcemaps",
     "delete-sourcemaps": "ts-node ./.erb/scripts/delete-source-maps-runner.js",
     "postinstall": "node .erb/scripts/postinstall.cjs",
-    "package": "ts-node ./.erb/scripts/clean.js && pnpm run build && electron-builder build --publish never",
-    "package:all": "ts-node ./.erb/scripts/clean.js && pnpm run build && electron-builder build --publish never --win --mac --linux",
+    "package": "ts-node ./.erb/scripts/clean.js && pnpm run build && node ./.erb/scripts/prepare-local-builder-config.cjs && electron-builder build --publish never -c electron-builder.local.yml",
+    "package:all": "ts-node ./.erb/scripts/clean.js && pnpm run build && node ./.erb/scripts/prepare-local-builder-config.cjs && electron-builder build --publish never -c electron-builder.local.yml --win --mac --linux",
     "release:web": "bash release-web.sh",
     "release:mac": "bash release-mac.sh",
     "release:linux": "bash release-linux.sh",

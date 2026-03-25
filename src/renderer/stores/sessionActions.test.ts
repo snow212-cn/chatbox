@@ -14,8 +14,9 @@ const { uuidQueue, uuidv4Mock } = vi.hoisted(() => {
   return { uuidQueue: queue, uuidv4Mock: mock }
 })
 
-const { updateSessionWithMessages, useSessionMock, getSessionMock } = vi.hoisted(() => ({
+const { updateSessionWithMessages, insertMessageMock, useSessionMock, getSessionMock } = vi.hoisted(() => ({
   updateSessionWithMessages: vi.fn(),
+  insertMessageMock: vi.fn(),
   useSessionMock: vi.fn(),
   getSessionMock: vi.fn(),
 }))
@@ -56,6 +57,7 @@ vi.mock('uuid', () => ({
 vi.mock('./chatStore', () => ({
   updateSessionWithMessages,
   updateSession: vi.fn(),
+  insertMessage: insertMessageMock,
   getSession: getSessionMock,
   useSession: useSessionMock,
 }))
@@ -153,6 +155,7 @@ beforeEach(() => {
   uuidQueue.length = 0
   uuidv4Mock.mockClear()
   updateSessionWithMessages.mockReset()
+  insertMessageMock.mockReset()
   useSessionMock.mockReset()
   getSessionMock.mockReset()
 })
@@ -451,5 +454,151 @@ describe('fork actions', () => {
     expect(fork!.lists).toHaveLength(2)
     expect(fork!.lists[0].messages).toEqual([target])
     expect(runGenerateMore).toHaveBeenCalledWith(session.id, pivot.id)
+  })
+
+  test('resendEditedMessageInNewFork forks from the previous message to preserve the original user message', async () => {
+    uuidQueue.push('fork-1', 'fork-2', 'fork-3', 'edited-copy', 'assistant-copy')
+    const previous = makeMessage('previous', 'assistant')
+    const originalUser = {
+      ...makeMessage('user-original', 'user'),
+      contentParts: [{ type: 'text' as const, text: 'Problem A' }],
+      timestamp: 123,
+    }
+    const originalReply = makeMessage('reply-original', 'assistant')
+    const editedUser: Message = {
+      ...originalUser,
+      contentParts: [{ type: 'text', text: 'Problem B' }],
+    }
+    const session: Session = {
+      id: 'session-9',
+      name: 'Test',
+      messages: [previous, originalUser, originalReply],
+    }
+    const snapshot = cloneSession(session)
+
+    getSessionMock.mockResolvedValue(session)
+
+    let updated: Session | undefined
+    updateSessionWithMessages.mockImplementation(async (_, updater) => {
+      const result = updater(session)
+      updated = result as Session
+      session.messages = updated!.messages
+      session.threads = updated!.threads
+      session.messageForksHash = updated!.messageForksHash
+      return result
+    })
+    insertMessageMock.mockImplementation(async (_, message, previousId) => {
+      const previousIndex = session.messages.findIndex((item) => item.id === previousId)
+      session.messages = [
+        ...session.messages.slice(0, previousIndex + 1),
+        message,
+        ...session.messages.slice(previousIndex + 1),
+      ]
+      updated = {
+        ...session,
+      }
+    })
+
+    const runGenerateMore = vi.fn().mockResolvedValue(undefined)
+
+    await sessionActions.resendEditedMessageInNewFork(session.id, originalUser, editedUser, { runGenerateMore })
+
+    expect(getSessionMock).toHaveBeenCalledWith(session.id)
+    expect(updateSessionWithMessages).toHaveBeenCalledTimes(1)
+    expect(snapshot).toEqual({
+      id: 'session-9',
+      name: 'Test',
+      messages: [previous, originalUser, originalReply],
+    })
+
+    expect(updated).toBeDefined()
+    expect(updated!.messages).toHaveLength(2)
+    expect(updated!.messages[0]).toEqual(previous)
+    expect(updated!.messages[1].id).toBe('edited-copy')
+    expect(updated!.messages[1].contentParts).toEqual([{ type: 'text', text: 'Problem B' }])
+
+    const fork = updated!.messageForksHash?.[previous.id]
+    expect(fork).toBeDefined()
+    expect(fork!.lists).toHaveLength(2)
+    expect(fork!.position).toBe(1)
+    expect(fork!.lists[0].messages).toEqual([originalUser, originalReply])
+    expect(fork!.lists[1].messages).toEqual([])
+    expect(runGenerateMore).toHaveBeenCalledWith(session.id, 'edited-copy')
+  })
+
+  test('resendEditedMessageInNewFork preserves the original first user message by inserting a synthetic fork anchor', async () => {
+    uuidQueue.push('edited-copy', 'synthetic-anchor', 'fork-1', 'fork-2')
+    const originalUser = {
+      ...makeMessage('user-original', 'user'),
+      contentParts: [{ type: 'text' as const, text: 'Problem A' }],
+      timestamp: 123,
+    }
+    const originalReply = makeMessage('reply-original', 'assistant')
+    const editedUser: Message = {
+      ...originalUser,
+      contentParts: [{ type: 'text', text: 'Problem B' }],
+    }
+    const session: Session = {
+      id: 'session-10',
+      name: 'Test',
+      messages: [originalUser, originalReply],
+    }
+    const snapshot = cloneSession(session)
+
+    getSessionMock.mockResolvedValue(session)
+
+    let updated: Session | undefined
+    updateSessionWithMessages.mockImplementation(async (_, updater) => {
+      const result = updater(session)
+      updated = result as Session
+      session.messages = updated!.messages
+      session.threads = updated!.threads
+      session.messageForksHash = updated!.messageForksHash
+      return result
+    })
+    insertMessageMock.mockImplementation(async (_, message, previousId) => {
+      const previousIndex = session.messages.findIndex((item) => item.id === previousId)
+      session.messages = [
+        ...session.messages.slice(0, previousIndex + 1),
+        message,
+        ...session.messages.slice(previousIndex + 1),
+      ]
+      updated = {
+        ...session,
+      }
+    })
+
+    const runGenerateMore = vi.fn().mockResolvedValue(undefined)
+
+    await sessionActions.resendEditedMessageInNewFork(session.id, originalUser, editedUser, { runGenerateMore })
+
+    expect(getSessionMock).toHaveBeenCalledWith(session.id)
+    expect(updateSessionWithMessages).toHaveBeenCalledTimes(1)
+    expect(insertMessageMock).not.toHaveBeenCalled()
+    expect(snapshot).toEqual({
+      id: 'session-10',
+      name: 'Test',
+      messages: [originalUser, originalReply],
+    })
+
+    expect(updated).toBeDefined()
+    expect(updated!.messages).toHaveLength(2)
+    expect(updated!.messages[0]).toMatchObject({
+      id: 'synthetic-anchor',
+      role: 'system',
+      name: '__synthetic_fork_anchor__',
+      contentParts: [],
+      timestamp: originalUser.timestamp,
+    })
+    expect(updated!.messages[1].id).toBe('edited-copy')
+    expect(updated!.messages[1].contentParts).toEqual([{ type: 'text', text: 'Problem B' }])
+
+    const fork = updated!.messageForksHash?.['synthetic-anchor']
+    expect(fork).toBeDefined()
+    expect(fork!.lists).toHaveLength(2)
+    expect(fork!.position).toBe(1)
+    expect(fork!.lists[0].messages).toEqual([originalUser, originalReply])
+    expect(fork!.lists[1].messages).toEqual([])
+    expect(runGenerateMore).toHaveBeenCalledWith(session.id, 'edited-copy')
   })
 })

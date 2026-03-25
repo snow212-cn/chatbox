@@ -10,7 +10,7 @@ import type {
   Settings,
 } from '@shared/types'
 import type { DocumentParserConfig } from '@shared/types/settings'
-import { getMessageText, migrateMessage } from '@shared/utils/message'
+import { getFirstVisibleMessage, getMessageText, migrateMessage } from '@shared/utils/message'
 import { pick } from 'lodash'
 import i18n from '@/i18n'
 import { formatChatAsHtml, formatChatAsMarkdown, formatChatAsTxt } from '@/lib/format-chat'
@@ -689,20 +689,28 @@ export function getCurrentThreadHistoryHash(s: Session) {
       if (!thread.messages || thread.messages.length === 0) {
         continue
       }
-      ret[thread.messages[0].id] = {
+      const firstVisibleMessage = getFirstVisibleMessage(thread.messages)
+      if (!firstVisibleMessage) {
+        continue
+      }
+      ret[firstVisibleMessage.id] = {
         id: thread.id,
         name: thread.name,
         createdAt: thread.createdAt,
         createdAtLabel: new Date(thread.createdAt).toLocaleString(),
-        firstMessageId: thread.messages[0].id,
+        firstMessageId: firstVisibleMessage.id,
         messageCount: thread.messages.length,
       }
     }
     if (s.messages && s.messages.length > 0) {
-      ret[s.messages[0].id] = {
+      const firstVisibleMessage = getFirstVisibleMessage(s.messages)
+      if (!firstVisibleMessage) {
+        return ret
+      }
+      ret[firstVisibleMessage.id] = {
         id: s.id,
         name: s.threadName || '',
-        firstMessageId: s.messages[0].id,
+        firstMessageId: firstVisibleMessage.id,
         messageCount: s.messages.length,
       }
     }

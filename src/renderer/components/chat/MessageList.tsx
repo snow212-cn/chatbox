@@ -100,6 +100,34 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
     [currentSession]
   )
   const currentMessageList = useMemo(() => getAllMessageList(currentSession), [currentSession])
+  const forkNavTargets = useMemo(() => {
+    const targets: Record<
+      string,
+      { forkMsgId: string; forks: NonNullable<Session['messageForksHash']>[string] }
+    > = {}
+
+    for (const [forkMsgId, forks] of Object.entries(currentSession.messageForksHash ?? {})) {
+      if (forks.lists.length <= 1) {
+        continue
+      }
+
+      const forkIndex = currentMessageList.findIndex((msg) => msg.id === forkMsgId)
+      if (forkIndex < 0) {
+        continue
+      }
+
+      // Display the fork navigator on the first visible message of the current branch.
+      // If the branch is currently empty, fall back to the fork point itself.
+      const anchorMsg = currentMessageList[forkIndex + 1] ?? currentMessageList[forkIndex]
+      if (!anchorMsg) {
+        continue
+      }
+
+      targets[anchorMsg.id] = { forkMsgId, forks }
+    }
+
+    return targets
+  }, [currentMessageList, currentSession.messageForksHash])
 
   const latestSummaryMessageId = useMemo(() => {
     for (let i = currentMessageList.length - 1; i >= 0; i--) {
@@ -295,6 +323,15 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
                   {currentThreadHash[msg.id] && (
                     <ThreadLabel thread={currentThreadHash[msg.id]} sessionId={currentSession.id} />
                   )}
+                  {forkNavTargets[msg.id] && (
+                    <Flex justify="center" mb={4} className="z-10">
+                      <ForkNav
+                        sessionId={currentSession.id}
+                        msgId={forkNavTargets[msg.id].forkMsgId}
+                        forks={forkNavTargets[msg.id].forks}
+                      />
+                    </Flex>
+                  )}
                   <ErrorBoundary name={`message-item`}>
                     {msg.isSummary ? (
                       <SummaryMessage
@@ -320,16 +357,6 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
                       />
                     )}
                   </ErrorBoundary>
-                  {currentSession.messageForksHash?.[msg.id] &&
-                    currentSession.messageForksHash[msg.id].lists.length > 1 && (
-                      <Flex justify="flex-end" mt={-16} pr="md" mr="md" className="z-10 self-end">
-                        <ForkNav
-                          sessionId={currentSession.id}
-                          msgId={msg.id}
-                          forks={currentSession.messageForksHash[msg.id]}
-                        />
-                      </Flex>
-                    )}
                 </Stack>
               )
             }}
@@ -412,7 +439,11 @@ function ForkNav(props: { sessionId: string; msgId: string; forks: NonNullable<S
   }, [forks.lists.length])
 
   return (
-    <Flex gap="xs" align="center">
+    <Flex
+      gap={4}
+      align="center"
+      className="rounded-full border border-chatbox-border-primary bg-chatbox-background-secondary px-1 py-0.5 shadow-sm"
+    >
       <ActionIcon
         variant="subtle"
         size={20}

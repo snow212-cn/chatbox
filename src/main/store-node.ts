@@ -8,39 +8,45 @@ import type { Config, Settings } from '../shared/types'
 import { getLogger } from './util'
 
 const appDataPath = app.getPath('appData')
-const sharedUserDataPath = app.getPath('userData')
+const defaultUserDataPath = app.getPath('userData')
 const isolatedUserDataPath = path.resolve(appDataPath, 'Chatbox Fork')
-const legacyUserDataCandidates = Array.from(
+const sharedUserDataCandidates = Array.from(
   new Set([
-    sharedUserDataPath,
     path.resolve(appDataPath, 'xyz.chatboxapp.app'),
+    defaultUserDataPath,
+    path.resolve(appDataPath, 'Chatbox'),
     path.resolve(appDataPath, 'xyz.chatboxapp.ce'),
   ])
 )
 
-if (sharedUserDataPath !== isolatedUserDataPath) {
+function hasExistingUserData(dirpath: string) {
+  return (
+    fs.existsSync(path.resolve(dirpath, 'config.json')) ||
+    fs.existsSync(path.resolve(dirpath, 'databases')) ||
+    fs.existsSync(path.resolve(dirpath, 'chatbox-blobs'))
+  )
+}
+
+const targetUserDataPath =
+  sharedUserDataCandidates.find((candidate) => candidate !== isolatedUserDataPath && hasExistingUserData(candidate)) ??
+  defaultUserDataPath
+
+if (targetUserDataPath !== isolatedUserDataPath) {
   try {
-    const isolatedExists = fs.existsSync(isolatedUserDataPath)
+    app.setPath('userData', targetUserDataPath)
+    fs.ensureDirSync(targetUserDataPath)
 
-    app.setPath('userData', isolatedUserDataPath)
-
-    // First-run migration: merge data from known legacy Chatbox userData
-    // locations into the fork's own directory once, then isolate future writes.
-    if (!isolatedExists) {
-      fs.ensureDirSync(isolatedUserDataPath)
-      for (const legacyPath of legacyUserDataCandidates) {
-        if (!fs.existsSync(legacyPath) || legacyPath === isolatedUserDataPath) {
-          continue
-        }
-        fs.copySync(legacyPath, isolatedUserDataPath, {
-          dereference: true,
-          overwrite: false,
-          errorOnExist: false,
-        })
-      }
+    // Prefer the legacy/shared Chatbox directory, but import any files that only
+    // exist in the previously isolated fork directory so users keep recent data.
+    if (fs.existsSync(isolatedUserDataPath)) {
+      fs.copySync(isolatedUserDataPath, targetUserDataPath, {
+        dereference: true,
+        overwrite: false,
+        errorOnExist: false,
+      })
     }
   } catch (error) {
-    app.setPath('userData', isolatedUserDataPath)
+    app.setPath('userData', targetUserDataPath)
   }
 }
 

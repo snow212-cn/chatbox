@@ -9,6 +9,7 @@
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
 
+import './user-data-path'
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeTheme, session, shell, Tray } from 'electron'
 import electronDebug from 'electron-debug'
 import log from 'electron-log/main'
@@ -36,6 +37,7 @@ import {
   store,
 } from './store-node'
 import * as windowState from './window_state'
+import { toLocalPathForShellOpen, toOpenableLocalFileUrl } from '@shared/local-links'
 
 const knowledgeBaseInitPromise = import('./knowledge-base/index.js')
   .then((mod) => mod.getInitPromise())
@@ -74,6 +76,27 @@ console.log(`📱 URL Scheme registered: ${PROTOCOL_SCHEME}://`)
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+
+async function openLinkTarget(target: string) {
+  const localPath = toLocalPathForShellOpen(target)
+  if (localPath) {
+    const openError = await shell.openPath(localPath)
+    if (!openError) {
+      return
+    }
+
+    log.error(`Failed to open local path "${localPath}": ${openError}`)
+
+    const fallbackTarget = toOpenableLocalFileUrl(target)
+    if (fallbackTarget && fallbackTarget !== target) {
+      return shell.openExternal(fallbackTarget)
+    }
+
+    throw new Error(openError)
+  }
+
+  return shell.openExternal(target)
+}
 
 // --------- 快捷键 ---------
 
@@ -325,7 +348,9 @@ async function createWindow() {
 
   // Open urls in the user's browser
   mainWindow.webContents.setWindowOpenHandler((edata) => {
-    shell.openExternal(edata.url)
+    openLinkTarget(edata.url).catch((error) => {
+      log.error(`Failed to open window target "${edata.url}"`, error)
+    })
     return { action: 'deny' }
   })
 
@@ -589,7 +614,7 @@ ipcMain.handle('getLocale', () => {
   }
 })
 ipcMain.handle('openLink', (event, link) => {
-  return shell.openExternal(link)
+  return openLinkTarget(link)
 })
 ipcMain.handle('ensureShortcutConfig', (event, json) => {
   const config: ShortcutSetting = JSON.parse(json)

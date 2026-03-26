@@ -3,229 +3,139 @@
   <a href="README-CN.md">简体中文</a>
 </p>
 
-这里是 Chatbox 社区版的代码仓库，以 GPLv3 许可证开源。
-
-[Chatbox 再次开源！](https://github.com/chatboxai/chatbox/issues/2266)
-
-我们定期从专业版仓库同步代码到这个仓库，反之亦然。
-
-### 下载电脑端
-
-<table style="width: 100%">
-  <tr>
-    <td width="25%" align="center">
-      <b>Windows</b>
-    </td>
-    <td width="25%" align="center" colspan="2">
-      <b>MacOS</b>
-    </td>
-    <td width="25%" align="center">
-      <b>Linux</b>
-    </td>
-  </tr>
-  <tr style="text-align: center">
-    <td align="center" valign="middle">
-      <a href='https://chatboxai.app/?c=download-windows'>
-        <img src='./statics/windows.png' style="height:24px; width: 24px" />
-        <br />
-        <b>Setup.exe</b>
-      </a>
-    </td>
-    <td align="center" valign="middle">
-      <a href='https://chatboxai.app/?c=download-mac-intel'>
-        <img src='./statics/mac.png' style="height:24px; width: 24px" />
-        <br />
-        <b>Intel</b>
-      </a>
-    </td>
-    <td align="center" valign="middle">
-      <a href='https://chatboxai.app/?c=download-mac-aarch'>
-        <img src='./statics/mac.png' style="height:24px; width: 24px" />
-        <br />
-        <b style="white-space: nowrap;">Apple Silicon</b>
-      </a>
-    </td>
-    <td align="center" valign="middle">
-      <a href='https://chatboxai.app/?c=download-linux'>
-        <img src='./statics/linux.png' style="height:24px; width: 24px" />
-        <br />
-        <b>AppImage</b>
-      </a>
-    </td>
-  </tr>
-</table>
-
-### 下载移动端
-
-<a href='https://apps.apple.com/app/chatbox-ai/id6471368056' style='margin-right: 4px'>
-<img src='./statics/app_store.webp' style="height:38px;" />
-</a>
-<a href='https://play.google.com/store/apps/details?id=xyz.chatboxapp.chatbox' style='margin-right: 4px'>
-<img src='./statics/google_play.png' style="height:38px;" />
-</a>
-<a href='https://chatboxai.app/zh/install?download=android_apk' style='margin-right: 4px; display: inline-flex; justify-content: center'>
-<img src='./statics/android.png' style="height:28px; display: inline-block" />
-.APK
-</a>
-
-更多信息请访问: [chatboxai.app](https://chatboxai.app/)
-
----
-
-
 <h1 align="center">
-<img src='./statics/icon.png' width='30'>
-<span>
-    Chatbox
-    <span style="font-size:8px; font-weight: normal;">(Community Edition)</span>
-</span>
+<img src='./statics/icon.png' width='30' alt="Chatbox icon" />
+<span>Chatbox Fork</span>
 </h1>
+
 <p align="center">
-    <em>Chatbox 是一个 AI 模型桌面客户端，支持 ChatGPT、Claude、Google Gemini、Ollama 等主流模型，适用于 Windows、Mac、Linux、Web、Android 和 iOS 全平台</em>
+  <em>一个以桌面端使用为重点、独立维护的 Chatbox 强化修改版分支。</em>
 </p>
 
 <p align="center">
-<a href="https://github.com/chatboxai/chatbox/releases" target="_blank">
-<img alt="macOS" src="https://img.shields.io/badge/-macOS-black?style=flat-square&logo=apple&logoColor=white" />
+<a href="https://github.com/snow212-cn/chatbox/releases" target="_blank">
+<img alt="Releases" src="https://img.shields.io/github/v/release/snow212-cn/chatbox?display_name=tag&style=flat-square" />
 </a>
-<a href="https://github.com/chatboxai/chatbox/releases" target="_blank">
-<img alt="Windows" src="https://img.shields.io/badge/-Windows-blue?style=flat-square&logo=windows&logoColor=white" />
+<a href="https://github.com/snow212-cn/chatbox/releases" target="_blank">
+<img alt="下载量" src="https://img.shields.io/github/downloads/snow212-cn/chatbox/total?style=flat-square" />
 </a>
-<a href="https://github.com/chatboxai/chatbox/releases" target="_blank">
-<img alt="Linux" src="https://img.shields.io/badge/-Linux-yellow?style=flat-square&logo=linux&logoColor=white" />
+<a href="https://github.com/snow212-cn/chatbox/issues" target="_blank">
+<img alt="Issues" src="https://img.shields.io/github/issues/snow212-cn/chatbox?style=flat-square" />
 </a>
-<a href="https://github.com/chatboxai/chatbox/releases" target="_blank">
-<img alt="下载量" src="https://img.shields.io/github/downloads/chatboxai/chatbox/total.svg?style=flat" />
-</a>
-<a href="https://twitter.com/benn_huang" target="_blank">
-<img alt="Twitter" src="https://img.shields.io/badge/关注-benn_huang-blue?style=flat&logo=Twitter" />
+<a href="https://github.com/snow212-cn/chatbox/blob/patch/LICENSE" target="_blank">
+<img alt="License" src="https://img.shields.io/github/license/snow212-cn/chatbox?style=flat-square" />
 </a>
 </p>
 
-<a href="https://www.producthunt.com/posts/chatbox?utm_source=badge-featured&utm_medium=badge&utm_souce=badge-chatbox" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=429547&theme=light" alt="Chatbox - Better&#0032;UI&#0032;&#0038;&#0032;Desktop&#0032;App&#0032;for&#0032;ChatGPT&#0044;&#0032;Claude&#0032;and&#0032;other&#0032;LLMs&#0046; | Product Hunt" style="width: 150px; height: 30px;" width="100" height="40" /></a>
+这个仓库是 [chatboxai/chatbox](https://github.com/chatboxai/chatbox) 的独立维护强化修改版 fork，继续以 GPLv3 许可证发布。
+
+这个 fork 会在合适的时候同步上游，但按自己的节奏维护和发布，也包括仅在本 fork 中维护的修复与打包调整。仓库中的 `main` 分支用于跟踪上游同步，`patch` 分支用于承载 fork 的发布内容。
+
+## 下载
+
+本 fork 发布的桌面端构建产物统一放在：
+
+- [GitHub Releases](https://github.com/snow212-cn/chatbox/releases)
+
+目前这个 fork 主要发布桌面端安装包，不再把原项目官网和移动端商店页面作为分发入口。
 
 <img src="./statics/demo_desktop_1.jpg" alt="应用截图" style="box-shadow: 2px 2px 10px rgba(0,0,0,0.1); border: 1px solid #ddd; border-radius: 8px; width: 700px" />
 
 <img src="./statics/demo_desktop_2.jpg" alt="应用截图" style="box-shadow: 2px 2px 10px rgba(0,0,0,0.1); border: 1px solid #ddd; border-radius: 8px; width: 700px" />
 
-## 特性
+## 这个 Fork 的重点
 
--   **本地数据存储**  
-    :floppy_disk: 您的数据保留在您的设备上，确保数据永不丢失并保护您的隐私。
+- 强化对话分叉体验
+- 以桌面端打包和发布为主
+- 保持数据尽量存放在本地设备
+- 保留多模型提供商与本地模型后端支持
+- 持续维护上游未必会接收的 fork 专属修复
+- 在兼容前提下周期性同步上游更新
 
--   **无需部署、直接安装的安装包**  
-    :package: 通过可下载的安装包快速开始使用。无需复杂设置！
+## Fork 中新增或强化的修改
 
--   **支持多个 LLM 提供商**  
-    :gear: 无缝集成多种 AI 模型：
+相对上游版本，这个 fork 当前增加或强化了以下内容：
 
-    -   OpenAI (ChatGPT)
-    -   Azure OpenAI
-    -   Claude
-    -   Google Gemini Pro
-    -   Ollama (启用对本地模型的访问，如 llama2、Mistral、Mixtral、codellama、vicuna、yi 和 solar)
-    -   ChatGLM-6B
+- 重点强化了对话分叉工作流，尤其是“改写消息后保留原分支”的使用体验
+- 对 [issue #2510](https://github.com/chatboxai/chatbox/issues/2510) 提出的问题进行了改进：尽量在复写对话后保留原始分支，并提升多分支对话流转的可靠性
+- 改进会话与分叉分支恢复逻辑，尽量减少重启后聊天记录空白或丢失的问题
+- 提供基于 IndexedDB 的会话恢复脚本，方便在本地状态异常时排查和恢复数据
+- 增加面向本 fork 的本地打包配置，使未签名桌面构建和本地发布流程更稳定
+- 增加 GitHub Actions 自动化流程，用于同步上游、合并到 `patch` 并发布 release
 
--   **使用 Dall-E-3 生成图像**  
-    :art: 使用 Dall-E-3 创建您想象中的图像。
+## 为什么会有这个 Fork
 
--   **增强提示**  
-    :speech_balloon: 高级提示功能，精炼并聚焦您的查询以获得更好的响应。
+这个 fork 的动机是推进一些用户认为重要、但不适合继续等待上游作者的修复和增强。上游作者不接受以外部 Pull Request 协作为核心的开源维护模式，因此这个 fork 选择独立维护，把关键改动落地并持续发布。
 
--   **键盘快捷键**  
-    :keyboard: 使用加速您工作流程的快捷键保持高效。
+其中核心的一点是把 [issue #2510](https://github.com/chatboxai/chatbox/issues/2510) 所反映的对话分叉问题为重点来处理。这个 fork 将“保留原始对话分支”和“增强多分支对话体验”视为明确的产品目标，据此持续维护。
 
--   **Markdown、Latex 和代码高亮**  
-    :scroll: 使用 Markdown 和 Latex 的全部功能生成消息，并结合各种编程语言的语法高亮，提高可读性和呈现效果。
+## 功能
 
--   **提示库和消息引用**  
-    :books: 保存和组织提示以供重复使用，并引用消息以在讨论中提供上下文。
-
--   **流式回复**  
-    :arrow_forward: 通过即时、渐进式回复快速响应您的互动。
-
--   **人体工程学 UI 和深色主题**  
-    :new_moon: 用户友好的界面，带有夜间模式选项，减少长时间使用时的眼睛疲劳。
-
--   **团队协作**  
-    :busts_in_silhouette: 轻松协作并在团队中共享 OpenAI API 资源。[了解更多](../team-sharing/README.md)
-
--   **跨平台可用性**  
-    :computer: 聊天盒已为 Windows、Mac、Linux 用户准备就绪。
-
--   **通过 Web 版本随处访问**  
-    :globe_with_meridians: 在任何设备上使用带有浏览器的 Web 应用程序，随时随地。
-
--   **iOS 和 Android**  
-    :phone: 使用移动应用程序，随时随地在您的指尖上带来这种能力。
-
--   **多语言支持**  
-    :earth_americas: 通过提供多种语言的支持，迎合全球受众：
-
-    -   English
-    -   简体中文 (Simplified Chinese)
-    -   繁體中文 (Traditional Chinese)
-    -   日本語 (Japanese)
-    -   한국어 (Korean)
-    -   Français (French)
-    -   Deutsch (German)
-    -   Русский (Russian)
-
--   **更多...**  
-    :sparkles: 不断增强体验，加入新功能！
+- 本地数据存储
+- Windows、macOS、Linux 桌面安装包
+- 支持多个 LLM 提供商，包括 OpenAI、Azure OpenAI、Claude、Gemini、Ollama 及兼容 API
+- 提示词库与消息引用
+- Markdown、LaTeX 与代码高亮
+- 流式回复
+- 键盘快捷键
+- 深色主题与跨平台桌面界面
+- 仓库中仍保留 team-sharing 相关代码与文档
 
 ## 常见问题解答
 
--   [常见问题](./FAQ-CN.md)
+- [常见问题](./FAQ-CN.md)
 
-## 如何贡献
+## 贡献
 
-欢迎任何形式的贡献，包括但不限于：
+欢迎提交 issue 和聚焦明确的 bug 报告。如果要提交较大的修改，建议先开 issue 讨论方向。这个 fork 采用基于 `patch` 的维护流程。
 
--   提交问题
--   提交拉取请求
--   提交功能请求
--   提交错误报告
--   提交文档修订
--   提交翻译
--   提交任何其他形式的贡献
+## 环境要求
+
+- Node.js `>=20 <25`
+- pnpm `>=10`
 
 ## 构建指南
 
-1. 从 Github 克隆仓库
+1. 克隆本 fork
 
 ```bash
-git clone https://github.com/chatboxai/chatbox.git
+git clone https://github.com/snow212-cn/chatbox.git
+cd chatbox
 ```
 
-2. 安装所需的依赖
+2. 安装依赖
 
 ```bash
-npm install
+pnpm install
 ```
 
-3. 启动应用程序（开发模式）
+3. 以开发模式启动应用
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
-4. 构建应用程序，为当前平台打包安装程序
+4. 为当前平台构建并打包
 
 ```bash
-npm run package
+pnpm run package
 ```
 
-5. 构建应用程序，为所有平台打包安装程序
+5. 为桌面端支持的平台构建并打包
 
 ```bash
-npm run package:all
+pnpm run package:all
 ```
+
+## 分支说明
+
+- `main`：上游同步分支
+- `patch`：fork 发布分支
+
+## 与上游的关系
+
+这个项目仍然保持为上游 Chatbox 仓库的 fork，但已经独立维护。上游更新会在适合本 fork 时再合入，而 fork 自己的修改从 `patch` 分支发布。
 
 ## Star History
 
-[![星星历史图表](https://api.star-history.com/svg?repos=chatboxai/chatbox&type=Date)](https://star-history.com/#chatboxai/chatbox&Date)
-
-## 联系方式
-
-[Twitter](https://x.com/ChatboxAI_HQ) | [电子邮件](mailto:hi@chatboxai.com)
+[![星星历史图表](https://api.star-history.com/svg?repos=snow212-cn/chatbox&type=Date)](https://star-history.com/#snow212-cn/chatbox&Date)

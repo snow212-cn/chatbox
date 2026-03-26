@@ -36,7 +36,7 @@ jobs:
       main_updated: ${{ steps.sync.outputs.main_updated }}
       patch_updated: ${{ steps.sync.outputs.patch_updated }}
       patch_sha: ${{ steps.release_context.outputs.patch_sha }}
-      upstream_tag: ${{ steps.release_context.outputs.upstream_tag }}
+      upstream_version: ${{ steps.release_context.outputs.upstream_version }}
       release_tag: ${{ steps.release_context.outputs.release_tag }}
       release_name: ${{ steps.release_context.outputs.release_name }}
       should_release: ${{ steps.release_context.outputs.should_release }}
@@ -123,6 +123,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BUILD_ASSETS: ${{ inputs.build_assets != false && 'true' || 'false' }}
           DRAFT_RELEASE: ${{ inputs.draft_release == true && 'true' || 'false' }}
+          MAIN_UPDATED: ${{ steps.sync.outputs.main_updated }}
         shell: bash
         run: |
           set -euo pipefail
@@ -131,27 +132,30 @@ jobs:
           git checkout -B "${PATCH_BRANCH}" "origin/${PATCH_BRANCH}"
 
           patch_sha="$(git rev-parse HEAD)"
-          short_sha="${patch_sha:0:7}"
-
-          upstream_tag="$(gh api "repos/${UPSTREAM_REPO}/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
-          if [ -z "${upstream_tag}" ] || [ "${upstream_tag}" = "null" ]; then
-            upstream_tag="$(gh api "repos/${UPSTREAM_REPO}/tags?per_page=1" --jq '.[0].name' 2>/dev/null || true)"
-          fi
-          if [ "${upstream_tag}" = "null" ]; then
-            upstream_tag=""
-          fi
 
           should_release=false
           should_build=false
+          upstream_version=""
+          release_tag=""
+          release_name=""
 
-          if [ -n "${upstream_tag}" ]; then
-            release_tag="fork-${upstream_tag}"
-            release_name="Fork ${upstream_tag}"
-            should_release=true
+          if [ "${MAIN_UPDATED}" != "true" ]; then
+            echo "::notice::No new upstream commits were synced; skipping release evaluation."
           else
-            echo "::notice::No upstream release/tag detected; skipping release creation."
-            release_tag=""
-            release_name=""
+            upstream_version="$(python3 -c "import json, pathlib; path = pathlib.Path('release/app/package.json'); print(str(json.loads(path.read_text(encoding='utf-8')).get('version', '') or '').strip() if path.exists() else '')")"
+
+            if [ -z "${upstream_version}" ]; then
+              echo "::notice::No version found in release/app/package.json; skipping release creation."
+            else
+              release_tag="fork-v${upstream_version}"
+              release_name="Fork v${upstream_version}"
+
+              if gh release view "${release_tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+                echo "::notice::Release ${release_tag} already exists; skipping release creation."
+              else
+                should_release=true
+              fi
+            fi
           fi
 
           if [ "${should_release}" = "true" ] && [ "${BUILD_ASSETS}" = "true" ]; then
@@ -160,7 +164,7 @@ jobs:
 
           {
             echo "patch_sha=${patch_sha}"
-            echo "upstream_tag=${upstream_tag}"
+            echo "upstream_version=${upstream_version}"
             echo "release_tag=${release_tag}"
             echo "release_name=${release_name}"
             echo "should_release=${should_release}"
@@ -292,23 +296,29 @@ jobs:
           RELEASE_NAME: ${{ needs.sync.outputs.release_name }}
           RELEASE_TAG: ${{ needs.sync.outputs.release_tag }}
           PATCH_SHA: ${{ needs.sync.outputs.patch_sha }}
-          UPSTREAM_TAG: ${{ needs.sync.outputs.upstream_tag }}
+          UPSTREAM_VERSION: ${{ needs.sync.outputs.upstream_version }}
         shell: bash
         run: |
           set -euo pipefail
+          if [ -n "${UPSTREAM_VERSION}" ]; then
+            upstream_version_marker="v${UPSTREAM_VERSION}"
+          else
+            upstream_version_marker="no version detected in release/app/package.json"
+          fi
           cat > release-notes.md <<EOF
           ${RELEASE_NAME}
 
           This release is generated from the fork's \`${PATCH_BRANCH}\` branch after syncing \`${MAIN_BRANCH}\` with \`${UPSTREAM_REPO}\`.
 
           - Patch commit: \`${PATCH_SHA}\`
-          - Upstream reference: \`${UPSTREAM_TAG:-no upstream tag detected}\`
+          - Upstream version marker: \`${upstream_version_marker}\`
           - Workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
 
           Notes:
           - \`${MAIN_BRANCH}\` remains the upstream-tracking branch.
           - \`${PATCH_BRANCH}\` remains the release branch with fork-specific changes.
-          - Scheduled runs create releases only when a new upstream release or tag has not already been mirrored in this fork.
+          - Scheduled runs evaluate releases only after new upstream commits are synced.
+          - A release is created only when the synced \`release/app/package.json\` version has not already been mirrored in this fork.
           EOF
 
       - name: Create GitHub release
@@ -317,16 +327,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "${{ needs.sync.outputs.upstream_tag }}" ]; then
-            prefix="fork-${{ needs.sync.outputs.upstream_tag }}-"
-            gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq '.[] | select(.draft == true) | [.tag_name, .id] | @tsv' |
-              while IFS=$'\t' read -r tag_name release_id; do
-                if [[ "${tag_name}" == ${prefix}* ]]; then
-                  gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}"
-                fi
-              done
-          fi
-
           draft_args=()
           if gh release view "${{ needs.sync.outputs.release_tag }}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             if [ "${{ needs.sync.outputs.draft_release }}" = "true" ]; then

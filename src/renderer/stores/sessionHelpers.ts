@@ -36,6 +36,18 @@ function getCurrentTokenizerType(): 'default' | 'deepseek' {
   return getTokenizerType(currentModel)
 }
 
+function summarizeForks(session: Session) {
+  return Object.entries(session.messageForksHash ?? {}).map(([forkId, forkEntry]) => ({
+    forkId,
+    position: forkEntry.position,
+    lists: forkEntry.lists.map((list, listIndex) => ({
+      listIndex,
+      messageCount: list.messages.length,
+      firstVisibleRole: getFirstVisibleMessage(list.messages)?.role ?? null,
+    })),
+  }))
+}
+
 export function computePreviewMetadata(
   content: string,
   tokenizerType: 'default' | 'deepseek',
@@ -728,5 +740,50 @@ export function getAllMessageList(s: Session) {
   if (s.messages) {
     messageContext = messageContext.concat(s.messages)
   }
-  return messageContext
+  if (getFirstVisibleMessage(messageContext)) {
+    return messageContext
+  }
+  const fallbackMessages = getBestVisibleForkMessages(s)
+  if (!fallbackMessages && s.messageForksHash) {
+    console.warn('[session-helpers] getAllMessageList found no visible messages and no visible fork fallback', {
+      sessionId: s.id,
+      rootMessageCount: s.messages?.length ?? 0,
+      threadCount: s.threads?.length ?? 0,
+      rootRoles: (s.messages ?? []).map((message) => message.role),
+      forkSummary: summarizeForks(s),
+    })
+  }
+  if (fallbackMessages) {
+    console.warn('[session-helpers] getAllMessageList is rendering fallback fork messages for a blank session', {
+      sessionId: s.id,
+      fallbackMessageCount: fallbackMessages.length,
+      fallbackRoles: fallbackMessages.map((message) => message.role),
+      forkSummary: summarizeForks(s),
+    })
+  }
+  return fallbackMessages ?? messageContext
+}
+
+function getBestVisibleForkMessages(session: Session): Message[] | undefined {
+  const candidates =
+    Object.values(session.messageForksHash ?? {}).flatMap((forkEntry) =>
+      forkEntry.lists
+        .map((list, listIndex) => ({
+          messages: list.messages,
+          isActive: listIndex === forkEntry.position,
+          hasAssistant: list.messages.some((message) => message.role === 'assistant'),
+        }))
+        .filter(({ messages }) => !!getFirstVisibleMessage(messages))
+    ) ?? []
+
+  if (candidates.length === 0) {
+    return undefined
+  }
+
+  return (
+    candidates.find(({ isActive, hasAssistant }) => isActive && hasAssistant)?.messages ??
+    candidates.find(({ hasAssistant }) => hasAssistant)?.messages ??
+    candidates.find(({ isActive }) => isActive)?.messages ??
+    candidates[0].messages
+  )
 }

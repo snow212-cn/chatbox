@@ -1,6 +1,6 @@
 import type { Session } from '@shared/types'
 import { describe, expect, test } from 'vitest'
-import { migrateSession } from './session-utils'
+import { migrateSession, mirrorVisibleSyntheticForkBranches } from './session-utils'
 
 describe('migrateSession', () => {
   test('recovers a synthetic anchor session that was persisted before the edited branch message was inserted', () => {
@@ -290,7 +290,178 @@ describe('migrateSession', () => {
     const migrated = migrateSession(session)
 
     expect(migrated.messages).toEqual(session.messages)
-    expect(migrated.messageForksHash).toEqual(session.messageForksHash)
+    expect(migrated.messageForksHash).toEqual({
+      'synthetic-anchor': {
+        ...session.messageForksHash!['synthetic-anchor'],
+        lists: [
+          session.messageForksHash!['synthetic-anchor'].lists[0],
+          {
+            ...session.messageForksHash!['synthetic-anchor'].lists[1],
+            messages: [editedUser, editedReply],
+          },
+        ],
+      },
+    })
+  })
+
+  test('keeps a visible synthetic active branch when root messages exist but fork storage still has an empty selected list', () => {
+    const previousUser = {
+      id: 'previous-user',
+      role: 'user' as const,
+      contentParts: [{ type: 'text' as const, text: 'hi' }],
+      timestamp: 1774430306558,
+    }
+    const previousReply = {
+      id: 'previous-reply',
+      role: 'assistant' as const,
+      contentParts: [{ type: 'text' as const, text: 'Hi! How can I help?' }],
+      timestamp: 1774430338019,
+    }
+    const activeUser = {
+      id: 'active-user',
+      role: 'user' as const,
+      contentParts: [{ type: 'text' as const, text: 'hi' }],
+      timestamp: 1774430343937,
+    }
+    const activeReply = {
+      id: 'active-reply',
+      role: 'assistant' as const,
+      contentParts: [{ type: 'text' as const, text: 'Hi! How can I help?' }],
+      timestamp: 1774430349787,
+    }
+
+    const session: Session = {
+      id: 'session-user-json-shape',
+      name: '简单问候',
+      type: 'chat',
+      messages: [
+        {
+          id: 'synthetic-anchor',
+          role: 'system',
+          name: '__synthetic_fork_anchor__',
+          contentParts: [],
+          timestamp: 1774430306558,
+        },
+        activeUser,
+        activeReply,
+      ],
+      messageForksHash: {
+        'synthetic-anchor': {
+          createdAt: 1774430343937,
+          position: 1,
+          lists: [
+            {
+              id: 'fork_list_original',
+              messages: [previousUser, previousReply],
+            },
+            {
+              id: 'fork_list_active',
+              messages: [],
+            },
+          ],
+        },
+      },
+    }
+
+    const migrated = migrateSession(session)
+
+    expect(migrated.messages).toEqual(session.messages)
+    expect(migrated.messageForksHash).toEqual({
+      'synthetic-anchor': {
+        createdAt: 1774430343937,
+        position: 1,
+        lists: [
+          {
+            id: 'fork_list_original',
+            messages: [previousUser, previousReply],
+          },
+          {
+            id: 'fork_list_active',
+            messages: [activeUser, activeReply],
+          },
+        ],
+      },
+    })
+  })
+
+  test('mirrors a completed synthetic active branch into fork storage to avoid blank restore on restart', () => {
+    const originalUser = {
+      id: 'user-original',
+      role: 'user' as const,
+      contentParts: [{ type: 'text' as const, text: 'hi' }],
+      timestamp: 123,
+    }
+    const originalReply = {
+      id: 'reply-original',
+      role: 'assistant' as const,
+      contentParts: [{ type: 'text' as const, text: 'Hi! How can I help?' }],
+      timestamp: 124,
+    }
+    const activeUser = {
+      id: 'user-active',
+      role: 'user' as const,
+      contentParts: [{ type: 'text' as const, text: 'hi' }],
+      timestamp: 125,
+    }
+    const activeReply = {
+      id: 'reply-active',
+      role: 'assistant' as const,
+      contentParts: [{ type: 'text' as const, text: 'Hi! How can I help?' }],
+      timestamp: 126,
+    }
+
+    const session: Session = {
+      id: 'session-active-branch-mirror',
+      name: 'Recovered',
+      type: 'chat',
+      messages: [
+        {
+          id: 'synthetic-anchor',
+          role: 'system',
+          name: '__synthetic_fork_anchor__',
+          contentParts: [],
+          timestamp: 122,
+        },
+        activeUser,
+        activeReply,
+      ],
+      messageForksHash: {
+        'synthetic-anchor': {
+          createdAt: 127,
+          position: 1,
+          lists: [
+            {
+              id: 'fork_list_original',
+              messages: [originalUser, originalReply],
+            },
+            {
+              id: 'fork_list_active',
+              messages: [],
+            },
+          ],
+        },
+      },
+    }
+
+    const migrated = migrateSession(session)
+
+    expect(migrated.messages).toEqual(session.messages)
+    expect(migrated.messageForksHash).toEqual({
+      'synthetic-anchor': {
+        createdAt: 127,
+        position: 1,
+        lists: [
+          {
+            id: 'fork_list_original',
+            messages: [originalUser, originalReply],
+          },
+          {
+            id: 'fork_list_active',
+            messages: [activeUser, activeReply],
+          },
+        ],
+      },
+    })
   })
 
   test('recovers visible root content from fork storage when the root message list was persisted as empty', () => {
@@ -387,5 +558,144 @@ describe('migrateSession', () => {
 
     expect(migrated.messages).toEqual([editedUser, editedReply])
     expect(migrated.messageForksHash).toBeUndefined()
+  })
+})
+
+describe('mirrorVisibleSyntheticForkBranches', () => {
+  test('mirrors a completed synthetic active branch into fork storage during persistence', () => {
+    const originalUser = {
+      id: 'user-original',
+      role: 'user' as const,
+      contentParts: [{ type: 'text' as const, text: 'hi' }],
+      timestamp: 123,
+    }
+    const originalReply = {
+      id: 'reply-original',
+      role: 'assistant' as const,
+      contentParts: [{ type: 'text' as const, text: 'Hi! How can I help?' }],
+      timestamp: 124,
+    }
+    const activeUser = {
+      id: 'user-active',
+      role: 'user' as const,
+      contentParts: [{ type: 'text' as const, text: 'hi' }],
+      timestamp: 125,
+    }
+    const activeReply = {
+      id: 'reply-active',
+      role: 'assistant' as const,
+      contentParts: [{ type: 'text' as const, text: 'Hi! How can I help?' }],
+      timestamp: 126,
+    }
+
+    const session: Session = {
+      id: 'session-active-branch-persist',
+      name: 'Recovered',
+      type: 'chat',
+      messages: [
+        {
+          id: 'synthetic-anchor',
+          role: 'system',
+          name: '__synthetic_fork_anchor__',
+          contentParts: [],
+          timestamp: 122,
+        },
+        activeUser,
+        activeReply,
+      ],
+      messageForksHash: {
+        'synthetic-anchor': {
+          createdAt: 127,
+          position: 1,
+          lists: [
+            {
+              id: 'fork_list_original',
+              messages: [originalUser, originalReply],
+            },
+            {
+              id: 'fork_list_active',
+              messages: [],
+            },
+          ],
+        },
+      },
+    }
+
+    const normalized = mirrorVisibleSyntheticForkBranches(session)
+
+    expect(normalized).not.toBe(session)
+    expect(normalized.messageForksHash).toEqual({
+      'synthetic-anchor': {
+        createdAt: 127,
+        position: 1,
+        lists: [
+          {
+            id: 'fork_list_original',
+            messages: [originalUser, originalReply],
+          },
+          {
+            id: 'fork_list_active',
+            messages: [activeUser, activeReply],
+          },
+        ],
+      },
+    })
+  })
+
+  test('does not mirror an incomplete synthetic branch before assistant output is ready', () => {
+    const originalUser = {
+      id: 'user-original',
+      role: 'user' as const,
+      contentParts: [{ type: 'text' as const, text: 'hi' }],
+      timestamp: 123,
+    }
+    const originalReply = {
+      id: 'reply-original',
+      role: 'assistant' as const,
+      contentParts: [{ type: 'text' as const, text: 'Hi! How can I help?' }],
+      timestamp: 124,
+    }
+    const activeUser = {
+      id: 'user-active',
+      role: 'user' as const,
+      contentParts: [{ type: 'text' as const, text: 'hi' }],
+      timestamp: 125,
+    }
+
+    const session: Session = {
+      id: 'session-incomplete-active-branch-persist',
+      name: 'Recovered',
+      type: 'chat',
+      messages: [
+        {
+          id: 'synthetic-anchor',
+          role: 'system',
+          name: '__synthetic_fork_anchor__',
+          contentParts: [],
+          timestamp: 122,
+        },
+        activeUser,
+      ],
+      messageForksHash: {
+        'synthetic-anchor': {
+          createdAt: 127,
+          position: 1,
+          lists: [
+            {
+              id: 'fork_list_original',
+              messages: [originalUser, originalReply],
+            },
+            {
+              id: 'fork_list_active',
+              messages: [],
+            },
+          ],
+        },
+      },
+    }
+
+    const normalized = mirrorVisibleSyntheticForkBranches(session)
+
+    expect(normalized).toBe(session)
   })
 })

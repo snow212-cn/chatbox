@@ -14,7 +14,9 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeTheme, session
 import electronDebug from 'electron-debug'
 import log from 'electron-log/main'
 import { autoUpdater } from 'electron-updater'
+import { createServer, type Server as HttpServer } from 'http'
 import os from 'os'
+import * as fs from 'fs-extra'
 import path from 'path'
 // @ts-expect-error - source-map-support doesn't have type definitions
 import * as sourceMapSupport from 'source-map-support'
@@ -76,6 +78,96 @@ console.log(`📱 URL Scheme registered: ${PROTOCOL_SCHEME}://`)
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+let rendererServer: HttpServer | null = null
+
+const LEGACY_RENDERER_ORIGIN = 'http://localhost:1212'
+
+function getRendererDistPath() {
+  return path.join(__dirname, '../renderer')
+}
+
+function getMimeType(filepath: string) {
+  const ext = path.extname(filepath).toLowerCase()
+  switch (ext) {
+    case '.html':
+      return 'text/html; charset=utf-8'
+    case '.js':
+      return 'text/javascript; charset=utf-8'
+    case '.css':
+      return 'text/css; charset=utf-8'
+    case '.json':
+      return 'application/json; charset=utf-8'
+    case '.svg':
+      return 'image/svg+xml'
+    case '.png':
+      return 'image/png'
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg'
+    case '.gif':
+      return 'image/gif'
+    case '.ico':
+      return 'image/x-icon'
+    case '.woff':
+      return 'font/woff'
+    case '.woff2':
+      return 'font/woff2'
+    case '.ttf':
+      return 'font/ttf'
+    case '.otf':
+      return 'font/otf'
+    case '.map':
+      return 'application/json; charset=utf-8'
+    default:
+      return 'application/octet-stream'
+  }
+}
+
+async function ensureLegacyRendererServer() {
+  if (rendererServer) {
+    return LEGACY_RENDERER_ORIGIN
+  }
+
+  const rendererDistPath = getRendererDistPath()
+  const indexPath = path.join(rendererDistPath, 'index.html')
+
+  if (!(await fs.pathExists(indexPath))) {
+    throw new Error(`Renderer build output not found at ${indexPath}`)
+  }
+
+  rendererServer = createServer(async (req, res) => {
+    try {
+      const requestUrl = new URL(req.url || '/', LEGACY_RENDERER_ORIGIN)
+      const normalizedPath = decodeURIComponent(requestUrl.pathname)
+      const requestedPath = normalizedPath === '/' ? '/index.html' : normalizedPath
+      const relativePath = requestedPath.replace(/^\/+/, '')
+      const candidatePath = path.resolve(rendererDistPath, relativePath)
+      const isInsideRendererDir = candidatePath.startsWith(path.resolve(rendererDistPath))
+
+      const filepath =
+        isInsideRendererDir && (await fs.pathExists(candidatePath)) && (await fs.stat(candidatePath)).isFile()
+          ? candidatePath
+          : indexPath
+
+      res.writeHead(200, { 'Content-Type': getMimeType(filepath) })
+      fs.createReadStream(filepath).pipe(res)
+    } catch (error) {
+      log.error('Failed to serve renderer asset', error)
+      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
+      res.end('Renderer asset serving failed')
+    }
+  })
+
+  await new Promise<void>((resolve, reject) => {
+    rendererServer?.once('error', reject)
+    rendererServer?.listen(1212, '127.0.0.1', () => {
+      rendererServer?.off('error', reject)
+      resolve()
+    })
+  })
+
+  return LEGACY_RENDERER_ORIGIN
+}
 
 async function openLinkTarget(target: string) {
   const localPath = toLocalPathForShellOpen(target)
@@ -299,7 +391,8 @@ async function createWindow() {
   if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
+    const rendererUrl = await ensureLegacyRendererServer()
+    mainWindow.loadURL(rendererUrl)
   }
 
   mainWindow.on('ready-to-show', () => {
@@ -508,6 +601,8 @@ if (!gotTheLock) {
         } catch (e) {
           log.error('shortcut: failed to unregister', e)
         }
+        rendererServer?.close()
+        rendererServer = null
         mcpIpc.closeAllTransports()
         destroyTray()
       })

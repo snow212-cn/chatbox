@@ -2,6 +2,21 @@ import type { Session, SessionMeta } from '@shared/types'
 import { mapValues } from 'lodash'
 import { hasMeaningfulMessageContent, isSyntheticForkAnchor, migrateMessage } from '../../shared/utils/message'
 
+function debugForkSummary(messageForksHash: Session['messageForksHash']) {
+  return Object.entries(messageForksHash ?? {}).map(([forkId, forkEntry]) => ({
+    forkId,
+    position: forkEntry.position,
+    lists: forkEntry.lists.map((list, listIndex) => ({
+      listIndex,
+      messageCount: list.messages.length,
+      hasVisibleContent: list.messages.some(
+        (message) => !isSyntheticForkAnchor(message) && hasMeaningfulMessageContent(message)
+      ),
+      roles: list.messages.map((message) => message.role),
+    })),
+  }))
+}
+
 export function migrateSession(session: Session): Session {
   const migrated: Session = {
     ...session,
@@ -38,11 +53,91 @@ export function migrateSession(session: Session): Session {
     }
   })
 
+  const rootHasVisibleContent = recoveredRoot.messages.some(
+    (message) => !isSyntheticForkAnchor(message) && hasMeaningfulMessageContent(message)
+  )
+  if (!rootHasVisibleContent && messageForksHash) {
+    console.warn('[session-utils] migrated session still has no visible root messages', {
+      sessionId: session.id,
+      rootMessageCount: recoveredRoot.messages.length,
+      rootRoles: recoveredRoot.messages.map((message) => message.role),
+      forkSummary: debugForkSummary(messageForksHash),
+    })
+  }
+
   return {
     ...migrated,
     messages: recoveredRoot.messages,
     threads: recoveredThreads,
     messageForksHash,
+  }
+}
+
+export function mirrorVisibleSyntheticForkBranches(session: Session): Session {
+  if (!session.messageForksHash) {
+    return session
+  }
+
+  let nextForks = session.messageForksHash
+  let changed = false
+
+  const hasCompleteAssistantOutput = (branchMessages: Session['messages']) =>
+    branchMessages.some(
+      (branchMessage) =>
+        branchMessage.role === 'assistant' &&
+        !isSyntheticForkAnchor(branchMessage) &&
+        hasMeaningfulMessageContent(branchMessage)
+    )
+
+  const hasVisibleConversationContent = (branchMessages: Session['messages']) =>
+    branchMessages.some((branchMessage) => !isSyntheticForkAnchor(branchMessage) && hasMeaningfulMessageContent(branchMessage))
+
+  const syncMessageList = (messages: Session['messages']) => {
+    for (let index = 0; index < messages.length; index++) {
+      const message = messages[index]
+      if (!isSyntheticForkAnchor(message)) {
+        continue
+      }
+
+      const forkEntry = nextForks?.[message.id]
+      if (!forkEntry) {
+        continue
+      }
+
+      const activeList = forkEntry.lists[forkEntry.position]
+      const currentTail = messages.slice(index + 1)
+      if (!activeList || !hasCompleteAssistantOutput(currentTail) || hasVisibleConversationContent(activeList.messages)) {
+        continue
+      }
+
+      nextForks = {
+        ...(nextForks ?? {}),
+        [message.id]: {
+          ...forkEntry,
+          lists: forkEntry.lists.map((list, listIndex) =>
+            listIndex === forkEntry.position
+              ? {
+                  ...list,
+                  messages: currentTail,
+                }
+              : list
+          ),
+        },
+      }
+      changed = true
+    }
+  }
+
+  syncMessageList(session.messages)
+  session.threads?.forEach((thread) => syncMessageList(thread.messages))
+
+  if (!changed) {
+    return session
+  }
+
+  return {
+    ...session,
+    messageForksHash: nextForks,
   }
 }
 
@@ -102,6 +197,33 @@ function recoverSyntheticAnchorForks(
     }
 
     const currentTail = recoveredMessages.slice(index + 1)
+    const activeList = forkEntry.lists[forkEntry.position]
+
+    // Keep the currently visible branch mirrored in fork storage once it has
+    // complete assistant output. This prevents downstream restore logic from
+    // interpreting the selected branch as empty after restart.
+    if (
+      hasCompleteAssistantOutput(currentTail) &&
+      activeList &&
+      !hasVisibleConversationContent(activeList.messages)
+    ) {
+      recoveredForks = {
+        ...(recoveredForks ?? {}),
+        [message.id]: {
+          ...forkEntry,
+          lists: forkEntry.lists.map((list, listIndex) =>
+            listIndex === forkEntry.position
+              ? {
+                  ...list,
+                  messages: currentTail,
+                }
+              : list
+          ),
+        },
+      }
+      continue
+    }
+
     if (hasCompleteAssistantOutput(currentTail)) {
       continue
     }

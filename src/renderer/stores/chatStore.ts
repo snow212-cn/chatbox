@@ -22,7 +22,7 @@ import storage, { StorageKey } from '@/storage'
 import { StorageKeyGenerator } from '@/storage/StoreStorage'
 import * as defaults from '../../shared/defaults'
 import { getLogger } from '../lib/utils'
-import { migrateSession, sortSessions } from '../utils/session-utils'
+import { migrateSession, mirrorVisibleSyntheticForkBranches, sortSessions } from '../utils/session-utils'
 import { uiStore } from './uiStore'
 
 const log = getLogger('chat-store')
@@ -98,7 +98,21 @@ async function _getSessionById(id: string): Promise<Session | null> {
     if (!session) {
       return null
     }
-    return migrateSession(session)
+    const migrated = migrateSession(session)
+    if (
+      migrated.messageForksHash &&
+      !getFirstVisibleMessage(migrated.messages) &&
+      !migrated.threads?.some((thread) => !!getFirstVisibleMessage(thread.messages))
+    ) {
+      console.warn('[chat-store] loaded session remains blank after migration', {
+        sessionId: id,
+        storageKey,
+        rootMessageCount: migrated.messages.length,
+        threadCount: migrated.threads?.length ?? 0,
+        forkIds: Object.keys(migrated.messageForksHash),
+      })
+    }
+    return migrated
   } catch (error) {
     log.error(`Failed to read session from storage (key: ${storageKey}, sessionId: ${id}):`, error)
     // Re-throw to prevent incorrect state
@@ -126,7 +140,7 @@ export function useSession(sessionId: string | null) {
 
 function _setSessionCache(sessionId: string, updated: Session | null) {
   // 1. update session cache 2. session settings do not use cache now
-  queryClient.setQueryData(QueryKeys.ChatSession(sessionId), updated)
+  queryClient.setQueryData(QueryKeys.ChatSession(sessionId), updated ? mirrorVisibleSyntheticForkBranches(updated) : updated)
 }
 
 // create session
@@ -170,7 +184,7 @@ export async function updateSessionWithMessages(sessionId: string, updater: Upda
       async (session) => {
         if (session) {
           console.debug('chatStore', 'persist session', sessionId)
-          await storage.setItemNow(StorageKeyGenerator.session(sessionId), session)
+          await storage.setItemNow(StorageKeyGenerator.session(sessionId), mirrorVisibleSyntheticForkBranches(session))
         }
       }
     )
@@ -189,16 +203,17 @@ export async function updateSessionWithMessages(sessionId: string, updater: Upda
       return { ...prev, ...updater }
     }
   })
+  const normalizedUpdated = mirrorVisibleSyntheticForkBranches(updated)
   if (needUpdateSessionList) {
     await updateSessionList((sessions) => {
       if (!sessions) {
         throw new Error('Session list not found')
       }
-      return sessions.map((session) => (session.id === sessionId ? getSessionMeta(updated) : session))
+      return sessions.map((session) => (session.id === sessionId ? getSessionMeta(normalizedUpdated) : session))
     })
   }
-  _setSessionCache(sessionId, updated)
-  return updated
+  _setSessionCache(sessionId, normalizedUpdated)
+  return normalizedUpdated
 }
 
 // 这里只能修改messages之外的字段
@@ -227,9 +242,9 @@ export async function updateSessionCache(sessionId: string, updater: Updater<Ses
       return old
     }
     if (typeof updater === 'function') {
-      return updater(old)
+      return mirrorVisibleSyntheticForkBranches(updater(old))
     } else {
-      return { ...old, ...updater }
+      return mirrorVisibleSyntheticForkBranches({ ...old, ...updater })
     }
   })
 }

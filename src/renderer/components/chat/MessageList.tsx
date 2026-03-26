@@ -2,6 +2,7 @@ import NiceModal from '@ebay/nice-modal-react'
 import { ActionIcon, Button, Flex, Stack, Text, Transition } from '@mantine/core'
 import { useThrottledCallback } from '@mantine/hooks'
 import type { Session, SessionThreadBrief } from '@shared/types'
+import { isSyntheticForkAnchor } from '@shared/utils/message'
 import {
   IconAlignRight,
   IconArrowBarToUp,
@@ -100,6 +101,10 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
     [currentSession]
   )
   const currentMessageList = useMemo(() => getAllMessageList(currentSession), [currentSession])
+  const visibleMessageList = useMemo(
+    () => currentMessageList.filter((msg) => !isSyntheticForkAnchor(msg)),
+    [currentMessageList]
+  )
   const forkNavTargets = useMemo(() => {
     const targets: Record<
       string,
@@ -118,7 +123,10 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
 
       // Display the fork navigator on the first visible message of the current branch.
       // If the branch is currently empty, fall back to the fork point itself.
-      const anchorMsg = currentMessageList[forkIndex + 1] ?? currentMessageList[forkIndex]
+      const anchorMsg =
+        currentMessageList.slice(forkIndex + 1).find((msg) => !isSyntheticForkAnchor(msg)) ??
+        currentMessageList[forkIndex + 1] ??
+        currentMessageList[forkIndex]
       if (!anchorMsg) {
         continue
       }
@@ -130,13 +138,13 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
   }, [currentMessageList, currentSession.messageForksHash])
 
   const latestSummaryMessageId = useMemo(() => {
-    for (let i = currentMessageList.length - 1; i >= 0; i--) {
-      if (currentMessageList[i].isSummary) {
-        return currentMessageList[i].id
+    for (let i = visibleMessageList.length - 1; i >= 0; i--) {
+      if (visibleMessageList[i].isSummary) {
+        return visibleMessageList[i].id
       }
     }
     return null
-  }, [currentMessageList])
+  }, [visibleMessageList])
 
   const virtuoso = useRef<VirtuosoHandle>(null)
   const messageListRef = useRef<HTMLDivElement>(null)
@@ -159,8 +167,8 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
   const handleScrollToPrev = useCallback(() => {
     if (messageListRef?.current && virtuoso?.current) {
       const containerRect = messageListRef.current.getBoundingClientRect()
-      for (let i = 0; i < currentMessageList.length; i++) {
-        const msg = currentMessageList[i]
+      for (let i = 0; i < visibleMessageList.length; i++) {
+        const msg = visibleMessageList[i]
         if (msg.role !== 'user' && msg.role !== 'assistant') {
           continue
         }
@@ -172,7 +180,7 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
           // 找到第一个出现在可视区域顶部的元素，滚动到上一条用户消息
           if (rect.bottom > containerRect.top) {
             for (let j = i - 1; j >= 0; j--) {
-              if (currentMessageList[j].role === 'user') {
+              if (visibleMessageList[j].role === 'user') {
                 virtuoso.current.scrollToIndex({
                   index: j,
                   align: 'start',
@@ -189,13 +197,13 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
         }
       }
     }
-  }, [currentMessageList, isSmallScreen])
+  }, [visibleMessageList, isSmallScreen])
 
   const handleScrollToNext = useCallback(() => {
     if (messageListRef?.current && virtuoso?.current) {
       const containerRect = messageListRef.current.getBoundingClientRect()
-      for (let i = 0; i < currentMessageList.length; i++) {
-        const msg = currentMessageList[i]
+      for (let i = 0; i < visibleMessageList.length; i++) {
+        const msg = visibleMessageList[i]
         if (msg.role !== 'user' && msg.role !== 'assistant') {
           continue
         }
@@ -206,20 +214,20 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
           const rect = msgElement.getBoundingClientRect()
           // 找到第一个出现在可视区域顶部的元素，滚动到下一条用户消息
           if (rect.bottom > containerRect.top) {
-            for (let j = i + 1; j < currentMessageList.length; j++) {
-              if (currentMessageList[j].role === 'user') {
+            for (let j = i + 1; j < visibleMessageList.length; j++) {
+              if (visibleMessageList[j].role === 'user') {
                 virtuoso.current.scrollToIndex({ index: j, align: 'start', behavior: 'smooth' })
                 return
               }
             }
             // 没有下一条用户消息了，滚动到底部
-            virtuoso.current.scrollToIndex({ index: currentMessageList.length - 1, align: 'end', behavior: 'smooth' })
+            virtuoso.current.scrollToIndex({ index: visibleMessageList.length - 1, align: 'end', behavior: 'smooth' })
             return
           }
         }
       }
     }
-  }, [currentMessageList])
+  }, [visibleMessageList])
 
   const [atBottom, setAtBottom] = useState(false)
   const [atTop, setAtTop] = useState(false)
@@ -299,7 +307,7 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
           <Virtuoso
             style={{ scrollbarGutter: 'stable' }}
             className={platformType === 'win32' ? 'scrollbar-custom' : ''}
-            data={currentMessageList}
+            data={visibleMessageList}
             ref={virtuoso}
             followOutput="smooth"
             {...(sessionScrollPositionCache.has(currentSession.id)
@@ -309,7 +317,7 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
                   initialScrollTop: sessionScrollPositionCache.get(currentSession.id)?.scrollTop,
                 }
               : {
-                  initialTopMostItemIndex: currentMessageList.length - 1,
+                  initialTopMostItemIndex: visibleMessageList.length - 1,
                 })}
             increaseViewportBy={{ top: 2000, bottom: 2000 }}
             itemContent={(index, msg) => {
@@ -336,7 +344,7 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
                     {msg.isSummary ? (
                       <SummaryMessage
                         msg={msg}
-                        className={index === 0 ? 'pt-4' : index === currentMessageList.length - 1 ? '!pb-4' : ''}
+                        className={index === 0 ? 'pt-4' : index === visibleMessageList.length - 1 ? '!pb-4' : ''}
                         isLatestSummary={msg.id === latestSummaryMessageId}
                         onDelete={() => removeMessage(currentSession.id, msg.id)}
                         sessionId={currentSession.id}
@@ -347,10 +355,10 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
                         msg={msg}
                         sessionId={currentSession.id}
                         sessionType={currentSession.type || 'chat'}
-                        className={index === 0 ? 'pt-4' : index === currentMessageList.length - 1 ? '!pb-4' : ''}
+                        className={index === 0 ? 'pt-4' : index === visibleMessageList.length - 1 ? '!pb-4' : ''}
                         collapseThreshold={msg.role === 'system' ? 150 : undefined}
                         buttonGroup={
-                          index === currentMessageList.length - 1 && msg.role === 'assistant' ? 'always' : 'auto'
+                          index === visibleMessageList.length - 1 && msg.role === 'assistant' ? 'always' : 'auto'
                         }
                         assistantAvatarKey={currentSession.assistantAvatarKey}
                         sessionPicUrl={currentSession.picUrl}

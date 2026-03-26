@@ -7,13 +7,14 @@ This repository is structured around two long-lived branches:
 
 The workflow at `.github/workflows/sync-upstream-release.yml` automates that model:
 
-1. fast-forward `main` to `upstream/main` when upstream has new commits
+1. merge `upstream/main` into `main`
 2. merge `main` into `patch`
 3. create a fork release only when the upstream repository exposes a new GitHub release or tag that this fork has not mirrored yet
 
 Important details:
 
 - The workflow file must exist on the default branch `main` before `schedule` and `workflow_dispatch` are available in GitHub.
+- Because the workflow lives on `main`, `main` cannot stay as a byte-for-byte mirror of `upstream/main`; it is expected to contain the fork's workflow/history and merge upstream on top of that.
 - Releases are created from `patch`, not from `main`.
 - The default manual behavior is `build_assets: true` and `draft_release: true`.
 - "Upstream build" is not used as a trigger because GitHub does not provide a stable cross-repository build event suitable for this workflow. The practical signal is upstream `release/tag`.

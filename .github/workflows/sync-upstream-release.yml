@@ -79,8 +79,17 @@ jobs:
 
           git checkout -B "${MAIN_BRANCH}" "origin/${MAIN_BRANCH}"
 
-          if [ "$(git rev-list --count "origin/${MAIN_BRANCH}..upstream/${MAIN_BRANCH}")" -gt 0 ]; then
-            git merge --ff-only "upstream/${MAIN_BRANCH}"
+          main_before="$(git rev-parse HEAD)"
+
+          if ! git merge --no-ff --no-edit "upstream/${MAIN_BRANCH}"; then
+            git merge --abort || true
+            echo "::error::Failed to merge upstream/${MAIN_BRANCH} into ${MAIN_BRANCH}. Resolve the conflict on ${MAIN_BRANCH} manually."
+            exit 1
+          fi
+
+          main_after="$(git rev-parse HEAD)"
+
+          if [ "${main_before}" != "${main_after}" ]; then
             git push origin "HEAD:${MAIN_BRANCH}"
             main_updated=true
           fi

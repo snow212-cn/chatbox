@@ -9,7 +9,7 @@
 </h1>
 
 <p align="center">
-  <em>An independently maintained fork of Chatbox for desktop use.</em>
+  <em>An enhanced Chatbox fork focused on preserving original conversation branches when rewriting from earlier messages.</em>
 </p>
 
 <p align="center">
@@ -46,33 +46,25 @@ At the moment, this fork primarily publishes desktop artifacts. Mobile store lis
 <img src="./doc/statics/snapshot_dark.png" width="400" alt="Dark screenshot" />
 </a>
 
-## What This Fork Focuses On
+## Core Enhancement
 
-- Strengthening the conversation forking experience
-- Desktop-first packaging and release automation
-- Keeping local data on device
-- Support for multiple providers and local-model backends
-- Fork-specific fixes that may not land upstream
-- Periodic upstream syncs when they are still compatible with this fork
+This fork exists first and foremost to strengthen Chatbox's conversation forking behavior.
 
-## Fork-Specific Changes
+The upstream problem discussed in [issue #2510](https://github.com/chatboxai/chatbox/issues/2510) is straightforward: when a user goes back to an earlier message, rewrites it, and continues the conversation, the original path should stay preserved and easy to return to. In upstream, that workflow was not reliable enough. This fork treats that as the main enhancement target rather than a secondary fix.
 
-Compared with upstream, this fork currently includes these maintenance-focused changes:
+In this fork, the intended behavior is:
 
-- A stronger conversation forking workflow focused on preserving original branches after rewriting a message
-- Improvements aimed at the problem described in [issue #2510](https://github.com/chatboxai/chatbox/issues/2510): keeping the original branch visible after conversation rewrite and making branch-based conversation flow more reliable
-- More robust session and fork-branch recovery logic to reduce blank or missing chats after restart
-- Recovery tooling for extracting session data from IndexedDB when local state needs repair
-- Shared user-data path handling so existing Chatbox data can be reused more safely by this fork
-- Better handling of local file links on desktop, including Windows paths and `file://` links in Markdown
-- Local packaging adjustments so unsigned desktop builds can be produced more reliably in this fork
-- GitHub Actions automation for upstream sync, patch-branch release flow, and release asset publishing
+- rewriting from an earlier message should keep the original branch instead of effectively replacing it
+- alternate branches should be easier to recognize, switch, and continue
+- branch state should survive restart and session restore more reliably
+
+The other technical changes in this fork mostly exist to support that branching enhancement and the side effects it introduces, rather than to define the fork on their own.
 
 ## Why This Fork Exists
 
-This fork exists to continue shipping fixes and enhancements that were important to its maintainer but were not practical to land upstream through the current collaboration model.
+This fork exists because the original maintainer does not accept pull requests and has shown a passive attitude toward open-source collaboration. Waiting for upstream acceptance was therefore not a practical path for this change.
 
-In particular, the conversation-branching problem raised in [issue #2510](https://github.com/chatboxai/chatbox/issues/2510) became a primary motivation: this fork treats branch preservation and a stronger multi-branch conversation experience as product-level priorities rather than waiting for upstream acceptance.
+Instead, this fork takes a direct route: independently maintain an enhanced edition of Chatbox, keep syncing upstream where it still makes sense, and continue shipping the conversation-branching improvements as its primary product direction.
 
 ## Features
 

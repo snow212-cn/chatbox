@@ -15,6 +15,11 @@ on:
         required: false
         type: boolean
         default: false
+      force_release_current_version:
+        description: Evaluate and create the current patch version release even when no new upstream commit was synced
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -123,6 +128,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BUILD_ASSETS: ${{ inputs.build_assets != false && 'true' || 'false' }}
           DRAFT_RELEASE: ${{ inputs.draft_release == true && 'true' || 'false' }}
+          MAIN_UPDATED: ${{ steps.sync.outputs.main_updated }}
+          FORCE_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.force_release_current_version == true && 'true' || 'false' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -143,15 +150,36 @@ jobs:
 
           should_release=false
           should_build=false
+          upstream_version=""
+          release_tag=""
+          release_name=""
+          evaluate_release=false
 
-          if [ -n "${upstream_tag}" ]; then
-            release_tag="fork-${upstream_tag}"
-            release_name="Fork ${upstream_tag}"
-            should_release=true
+          if [ "${MAIN_UPDATED}" = "true" ] || [ "${FORCE_RELEASE}" = "true" ]; then
+            evaluate_release=true
+          fi
+
+          if [ "${evaluate_release}" != "true" ]; then
+            echo "::notice::No new upstream commits were synced; skipping release evaluation."
           else
-            echo "::notice::No upstream release/tag detected; skipping release creation."
-            release_tag=""
-            release_name=""
+            if [ "${FORCE_RELEASE}" = "true" ] && [ "${MAIN_UPDATED}" != "true" ]; then
+              echo "::notice::Force release enabled for workflow_dispatch; evaluating current patch version without new upstream commits."
+            fi
+
+            upstream_version="$(python3 -c "import json, pathlib; path = pathlib.Path('release/app/package.json'); print(str(json.loads(path.read_text(encoding='utf-8')).get('version', '') or '').strip() if path.exists() else '')")"
+
+            if [ -z "${upstream_version}" ]; then
+              echo "::notice::No version found in release/app/package.json; skipping release creation."
+            else
+              release_tag="fork-v${upstream_version}"
+              release_name="Fork v${upstream_version}"
+
+              if gh release view "${release_tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+                echo "::notice::Release ${release_tag} already exists; skipping release creation."
+              else
+                should_release=true
+              fi
+            fi
           fi
 
           if [ "${should_release}" = "true" ] && [ "${BUILD_ASSETS}" = "true" ]; then
@@ -308,7 +336,9 @@ jobs:
           Notes:
           - \`${MAIN_BRANCH}\` remains the upstream-tracking branch.
           - \`${PATCH_BRANCH}\` remains the release branch with fork-specific changes.
-          - Scheduled runs create releases only when a new upstream release or tag has not already been mirrored in this fork.
+          - Scheduled runs evaluate releases only after new upstream commits are synced.
+          - Manual runs can override that gate with \`force_release_current_version\`.
+          - A release is created only when the synced \`release/app/package.json\` version has not already been mirrored in this fork.
           EOF
 
       - name: Create GitHub release
